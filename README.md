@@ -56,7 +56,7 @@ sudokooler --config path/to/devices.toml --interval-ms 1000 --count 0
 
 ## AI Assistance Disclosure
 
-This repository was bootstrapped and developed with assistance from **Google Antigravity** (agentic AI coding assistant), based on reverse-engineered USB HID captures and Python prototypes (`python/`).
+This repository was bootstrapped and developed with assistance from **Google Antigravity** (agentic AI coding assistant), based on reverse-engineered SK700V USB HID captures.
 
 ## License
 

@@ -2,12 +2,6 @@
 /target/
 **/*.rs.bk
 
-# Python cache and virtualenvs (keep python/*.py prototype scripts tracked)
-/python/__pycache__/
-/python/.venv/
-*.py[cod]
-*.pyc
-
 # Proprietary Sudokoo MasterCraft binaries, assets, captures, and unpacked bundles
 *.exe
 *.dll

@@ -6,7 +6,7 @@
 
 - `src/main.rs` — CLI entrypoint (`clap`) supporting `--list-devices`, `--dry-run`, `--config <PATH>`, `--interval-ms`, `--count`, and the default 1 Hz polling loop with `Ctrl+C` shutdown.
 - `src/config.rs` — Declarative TOML loader and validator (`profiles/default_devices.toml` embedded via `include_str!`, with optional `--config` file override).
-- `src/hid/protocol.rs` — Pure, hardware-independent packet encoding, checksum calculation, and 64-byte zero-padding (`encode_sk700v_packet`, `encode_telemetry`, `compute_checksum`). Covered by unit tests asserting byte-for-byte parity with `python/`.
+- `src/hid/protocol.rs` — Pure, hardware-independent packet encoding, checksum calculation, and 64-byte zero-padding (`encode_sk700v_packet`, `encode_telemetry`, `compute_checksum`). Covered by unit tests asserting byte-for-byte parity with captured SK700V USB HID frames.
 - `src/hid/mod.rs` — Cross-platform `hidapi` enumerator and `CoolerDevice` handle wrapper with safe disconnect/reconnect handling.
 - `src/sensors/mod.rs` — Cross-platform `Telemetry` struct and `SensorProvider` trait.
 - `src/sensors/windows.rs` — Windows sensor backend: Win32 PDH (`Processor Information(_Total)`) for CPU usage and effective frequency, plus opportunistic `Global\HWiNFO_SENS_SM2` shared-memory lookup for CPU package temperature & wattage.

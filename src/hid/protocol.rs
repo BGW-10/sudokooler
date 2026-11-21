@@ -63,7 +63,7 @@ pub fn decode_hex_packet(hex: &str, report_length: usize) -> Result<Vec<u8>, Pro
 
 /// Encodes a `Telemetry` sample into the exact 64-byte HID report used by the Sudokoo SK700V.
 ///
-/// Layout (verified against `python/main.py` and `python/playground.py`):
+/// Layout (verified against SK700V USB HID captures):
 /// - `[0]`: HID Report ID (`0x10`)
 /// - `[1..=3]`: Header (`0x68, 0x01, 0x09`)
 /// - `[4]`: Payload byte count (`0x0D` = 13 bytes covering `[5..=17]`)
@@ -133,7 +133,7 @@ pub fn encode_telemetry(
     }
 }
 
-/// Formats a byte slice as lowercase contiguous hex (matching `python/main.py` captures).
+/// Formats a byte slice as lowercase contiguous hex.
 pub fn format_hex(bytes: &[u8]) -> String {
     use std::fmt::Write as _;
     let mut out = String::with_capacity(bytes.len() * 2);
@@ -168,9 +168,9 @@ mod tests {
     }
 
     #[test]
-    fn matches_python_loop_packets_byte_for_byte() {
-        // MasterCraft USB captures from `python/main.py` (`LOOP_PACKETSA`) were recorded
-        // on a Ryzen 9800X3D using floor(power_w * 100 / 156) for the power bar byte.
+    fn matches_captured_sk700v_packets_byte_for_byte() {
+        // MasterCraft USB HID captures were recorded on a Ryzen 9800X3D
+        // using floor(power_w * 100 / 156) for the power bar byte.
         let profile = sk700v_profile(156, TempUnit::C);
 
         let samples = [
@@ -261,10 +261,9 @@ mod tests {
     }
 
     #[test]
-    fn matches_python_playground_max_values_packet() {
-        // Reproduces `python/playground.py`:
-        // pkt[7]=0x03, pkt[8]=0xE7 (999W), pkt[9]=100, pkt[10]=0 (C),
-        // pkt[11:15]=struct.pack('>f', 99.0), pkt[15]=100, pkt[16]=0x27, pkt[17]=0x0B (9995 MHz)
+    fn matches_max_values_packet() {
+        // Boundary frame verification: 999W (0x03E7), 100% power bar, 99.0C (BE f32),
+        // 100% load, 9995 MHz (0x270B).
         let profile = sk700v_profile(160, TempUnit::C);
         let telemetry = Telemetry {
             cpu_power_w: 999,
