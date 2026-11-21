@@ -118,6 +118,7 @@ uv run python/sk700v_prototype.py --off
 
 - [Architecture Guide](docs/ARCHITECTURE.md) — data flow, module map, safety guardrails, and Go-to-Rust quick reference
 - [Adding a Protocol or Sensor Backend](docs/ADDING_A_PROTOCOL.md) — step-by-step expansion guide
+- [Rust for Go & Python Developers](docs/RUST_FOR_GO_DEVS.md) — walkthrough of the Rust syntax and idioms used in this repo
 
 ## AI Assistance Disclosure
 

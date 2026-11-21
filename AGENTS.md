@@ -15,7 +15,7 @@
 - `src/sensors/windows_hwinfo.rs` — Fallback Windows sensor backend (`WindowsHwinfoSensors`) using Win32 PDH and opportunistic `Global\HWiNFO_SENS_SM2` shared-memory lookup.
 - `src/sensors/linux.rs` — Linux sensor backend: zero-dependency `/sys/class/hwmon` (`k10temp`, `zenpower`, `coretemp`), `/sys/class/powercap` RAPL fallback, `/proc/stat`, and `cpufreq`/`/proc/cpuinfo`.
 - `python/sk700v_prototype.py` — Standalone PEP 723 (`uv run`) SK700V reference implementation and USB HID diagnostic/decoder tool.
-- `docs/ARCHITECTURE.md` & `docs/ADDING_A_PROTOCOL.md` — Architecture overview and protocol/sensor expansion guides.
+- `docs/ARCHITECTURE.md`, `docs/ADDING_A_PROTOCOL.md`, & `docs/RUST_FOR_GO_DEVS.md` — Architecture overview, protocol/sensor expansion guide, and Go/Python-to-Rust reference.
 
 ## Data Contracts
 
