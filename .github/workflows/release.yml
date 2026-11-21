@@ -1,0 +1,92 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    name: Build Windows x86_64 Bundle
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run tests
+        run: cargo test
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Package self-contained Windows bundle
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: .\packaging\bundle-windows.ps1 -SkipBuild
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sudokooler-windows-x86_64
+          path: dist/sudokooler-windows-x86_64.zip
+          if-no-files-found: error
+
+  build-linux:
+    name: Build Linux x86_64 Archive
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install hidapi / udev build dependencies
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libudev-dev libhidapi-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run tests
+        run: cargo test
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Package Linux archive
+        run: |
+          mkdir -p dist/sudokooler-linux-x86_64
+          cp target/release/sudokooler dist/sudokooler-linux-x86_64/
+          cp packaging/99-sudokooler.rules dist/sudokooler-linux-x86_64/
+          cp packaging/sudokooler.service dist/sudokooler-linux-x86_64/
+          cp README.md dist/sudokooler-linux-x86_64/
+          tar -C dist -czf dist/sudokooler-linux-x86_64.tar.gz sudokooler-linux-x86_64
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sudokooler-linux-x86_64
+          path: dist/sudokooler-linux-x86_64.tar.gz
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [build-windows, build-linux]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true
