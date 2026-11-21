@@ -8,8 +8,9 @@
          (unless PawnIO is already installed or -SkipDriver is specified).
       2. Installs sudokooler.exe, pawnio\AMDFamily17.bin, README.md, licenses, and
          uninstall.ps1 into C:\Program Files\sudokooler (or -InstallDir).
-      3. Registers an elevated Windows Task Scheduler logon task ("sudokooler") and
-         starts it immediately (unless -NoTask / -NoStart are specified).
+      3. Registers a silent background Windows Task Scheduler startup task ("sudokooler")
+         running as SYSTEM (no terminal window) and starts it immediately (unless
+         -NoTask / -NoStart are specified).
 #>
 
 #Requires -RunAsAdministrator
@@ -68,6 +69,7 @@ if ($SkipDriver) {
 
 # Step 2: Copy sudokooler files to $InstallDir
 Write-Host "[2/3] Installing sudokooler into '$InstallDir'..."
+Stop-ScheduledTask -TaskName "sudokooler" -ErrorAction SilentlyContinue
 Get-Process -Name "sudokooler" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 300
 
@@ -91,14 +93,14 @@ foreach ($item in $copyMap) {
 
 $installedExe = Join-Path $InstallDir "sudokooler.exe"
 
-# Step 3: Register and start elevated Task Scheduler logon task
+# Step 3: Register and start silent background Task Scheduler startup task
 if ($NoTask) {
     Write-Host "[3/3] Skipping Scheduled Task registration (-NoTask)."
 } else {
-    Write-Host "[3/3] Registering elevated Scheduled Task 'sudokooler'..."
+    Write-Host "[3/3] Registering silent background Scheduled Task 'sudokooler' (SYSTEM at startup)..."
     $action = New-ScheduledTaskAction -Execute $installedExe -WorkingDirectory $InstallDir
-    $trigger = New-ScheduledTaskTrigger -AtLogOn
-    $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Highest
+    $trigger = New-ScheduledTaskTrigger -AtStartup
+    $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
     $settings = New-ScheduledTaskSettingsSet `
         -AllowStartIfOnBatteries `
         -DontStopIfGoingOnBatteries `
@@ -110,7 +112,7 @@ if ($NoTask) {
 
     if (-not $NoStart) {
         Start-ScheduledTask -TaskName "sudokooler"
-        Write-Host "      Scheduled Task 'sudokooler' registered and started."
+        Write-Host "      Scheduled Task 'sudokooler' registered and started silently in the background."
     } else {
         Write-Host "      Scheduled Task 'sudokooler' registered (-NoStart specified)."
     }

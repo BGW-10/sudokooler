@@ -66,7 +66,7 @@ Then extract `sudokooler-windows-x86_64.zip` and run from an **elevated (Adminis
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
-This installs PawnIO (if missing), copies `sudokooler.exe` + `pawnio\AMDFamily17.bin` into `C:\Program Files\sudokooler`, and registers/starts an elevated logon Scheduled Task (remove anytime with `powershell -ExecutionPolicy Bypass -File .\uninstall.ps1`).
+This installs PawnIO (if missing), copies `sudokooler.exe` + `pawnio\AMDFamily17.bin` into `C:\Program Files\sudokooler`, and registers/starts a silent background Scheduled Task (`SYSTEM` at startup, no terminal window; remove anytime with `powershell -ExecutionPolicy Bypass -File .\uninstall.ps1`).
 
 **Manual Setup (AMD Ryzen):**
 1. Install the signed **PawnIO** kernel driver from [pawnio.eu](https://pawnio.eu/).
