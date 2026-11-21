@@ -1,3 +1,9 @@
+//! TOML device profile registry and USB safety validation.
+//!
+//! Embeds `profiles/default_devices.toml` via `include_str!` and supports optional
+//! runtime overrides via `--config`. Enforces strict `VID == 0x381C` allowlisting,
+//! valid control packet framing, and unique enabled PIDs.
+
 use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
@@ -14,64 +20,90 @@ pub const SUDOKOO_VID: u16 = 0x381C;
 /// works standalone without needing external config files on disk.
 pub const DEFAULT_DEVICES_TOML: &str = include_str!("../profiles/default_devices.toml");
 
+/// Structured errors returned when loading or validating a device registry.
 #[derive(Debug, Error)]
 pub enum ConfigError {
+    /// Failed to read a custom TOML file from disk.
     #[error("failed to read config file '{path}': {source}")]
     Io {
         path: String,
         #[source]
         source: std::io::Error,
     },
+    /// TOML syntax or field deserialization failed.
     #[error("failed to parse TOML device registry: {0}")]
     Parse(#[from] toml::de::Error),
+    /// A profile violated hardware safety or protocol constraints.
     #[error("invalid profile '{name}': {reason}")]
     InvalidProfile { name: String, reason: String },
+    /// Two or more enabled profiles claimed the same USB Product ID.
     #[error("duplicate enabled device profile for PID 0x{pid:04X}")]
     DuplicateEnabledPid { pid: u16 },
 }
 
+/// Wire protocol family spoken by a cooler profile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ProtocolKind {
+    /// Sudokoo SK700V 64-byte HID protocol (`0x10 0x68 0x01 0x09 ... 0x16`).
     Sk700v,
 }
 
+/// Temperature display unit sent to the cooler's firmware.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum TempUnit {
+    /// Degrees Celsius (`0x00` wire flag).
     #[default]
     C,
+    /// Degrees Fahrenheit (`0x01` wire flag).
     F,
 }
 
+/// Declarative USB HID and protocol configuration for a single Sudokoo cooler model.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceProfile {
+    /// Human-readable product name (e.g., `"Sudokoo SK700V"`).
     pub name: String,
+    /// USB Vendor ID; validated to equal [`SUDOKOO_VID`] (`0x381C`).
     pub vid: u16,
+    /// USB Product ID (e.g., `0x0003` for SK700V).
     pub pid: u16,
+    /// Wire protocol encoder variant.
     pub protocol: ProtocolKind,
+    /// Safety switch: only `enabled = true` profiles may be opened or written over USB.
     #[serde(default)]
     pub enabled: bool,
+    /// Indicates whether the profile has been verified against physical hardware captures.
     #[serde(default)]
     pub verified: bool,
+    /// Leading HID Report ID byte (typically `0x10`).
     #[serde(default = "default_report_id")]
     pub report_id: u8,
+    /// Fixed padded HID output report size in bytes (typically `64`).
     #[serde(default = "default_report_length")]
     pub report_length: usize,
+    /// Reference wattage corresponding to 100% on the cooler's power bar.
     #[serde(default = "default_power_bar_max_w")]
     pub power_bar_max_w: u16,
+    /// Display temperature unit (`"C"` or `"F"`).
     #[serde(default)]
     pub temp_unit: TempUnit,
+    /// Optional HID usage page filter for multi-collection USB devices.
     #[serde(default)]
     pub usage_page: Option<u16>,
+    /// Optional USB interface number filter.
     #[serde(default)]
     pub interface_number: Option<i32>,
+    /// Hex-encoded control packets transmitted immediately after opening the device.
     #[serde(default)]
     pub init_packets: Vec<String>,
+    /// Hex-encoded control packets transmitted best-effort during clean shutdown.
     #[serde(default)]
     pub shutdown_packets: Vec<String>,
 }
 
+/// Root TOML document containing one or more [`DeviceProfile`] entries.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceRegistry {
     pub devices: Vec<DeviceProfile>,
@@ -109,6 +141,7 @@ pub fn load_registry(path: Option<&Path>) -> Result<DeviceRegistry, ConfigError>
 }
 
 impl DeviceRegistry {
+    /// Enforces hardware safety and wire-framing invariants across every configured profile.
     pub fn validate(&self) -> Result<(), ConfigError> {
         let mut enabled_pids = HashSet::new();
 

@@ -1,3 +1,12 @@
+//! Zero-dependency Linux CPU telemetry backend using sysfs and procfs.
+//!
+//! - **Temperature**: `/sys/class/hwmon` (`k10temp`, `zenpower`, `coretemp`, `fam15h_power`),
+//!   preferring `Tctl`/`Tdie`/`Package` labels when present.
+//! - **Power**: hwmon `power1_input`/`power1_average` (µW) with
+//!   `/sys/class/powercap/intel-rapl:0/energy_uj` energy-delta fallback.
+//! - **Usage & Frequency**: `/proc/stat` tick deltas and `cpufreq/scaling_cur_freq`
+//!   (with `/proc/cpuinfo` fallback).
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -8,6 +17,7 @@ use super::{SensorProvider, Telemetry};
 
 const PREFERRED_TEMP_DRIVERS: &[&str] = &["k10temp", "zenpower", "coretemp", "fam15h_power"];
 
+/// Native Linux [`SensorProvider`] backed by `/sys/class/hwmon`, `powercap`, and `/proc/stat`.
 pub struct LinuxSensors {
     temp_input: Option<PathBuf>,
     power_input: Option<PathBuf>,
@@ -20,6 +30,7 @@ pub struct LinuxSensors {
 }
 
 impl LinuxSensors {
+    /// Discovers sysfs sensor paths and captures initial `/proc/stat` and RAPL baselines.
     pub fn new() -> Result<Self> {
         let (temp_input, power_input) = discover_hwmon_paths();
         let (rapl_energy_input, rapl_max_energy_uj) = discover_rapl_path();

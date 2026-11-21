@@ -1,3 +1,9 @@
+//! Fallback Windows sensor backend using Win32 PDH + `HWiNFO64` shared memory.
+//!
+//! Opens `Global\HWiNFO_SENS_SM2` (or `Local\HWiNFO_SENS_SM2`) opportunistically on each
+//! sample tick, verifies the `"HWiS"` header signature (`44` bytes), maps the full
+//! reading section with bounds checking, and extracts CPU package temperature & wattage.
+
 use anyhow::Result;
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::System::Memory::{
@@ -23,6 +29,7 @@ struct OwnedHandle(HANDLE);
 impl Drop for OwnedHandle {
     fn drop(&mut self) {
         if !self.0.is_invalid() {
+            // SAFETY: `self.0` is an open Win32 kernel handle closed once on drop.
             unsafe {
                 let _ = CloseHandle(self.0);
             }
@@ -35,6 +42,7 @@ struct MappedView(MEMORY_MAPPED_VIEW_ADDRESS);
 impl Drop for MappedView {
     fn drop(&mut self) {
         if !self.0.Value.is_null() {
+            // SAFETY: `self.0` was returned by `MapViewOfFile` and is unmapped once on drop.
             unsafe {
                 let _ = UnmapViewOfFile(self.0);
             }
@@ -51,6 +59,7 @@ pub struct WindowsHwinfoSensors {
 }
 
 impl WindowsHwinfoSensors {
+    /// Initializes PDH counters and records why PawnIO was skipped (if applicable) for logging.
     pub fn new(pawnio_reason: Option<String>) -> Result<Self> {
         let pdh = PdhCpuCounters::new()?;
         Ok(Self {
@@ -124,17 +133,20 @@ struct HwinfoSnapshot {
 fn read_hwinfo_cpu_sensors() -> Option<HwinfoSnapshot> {
     let mapping = HWINFO_SHMEM_NAMES.iter().find_map(|name| {
         let wide = to_wide_null(name);
+        // SAFETY: `wide` is a NUL-terminated UTF-16 string; read-only access requested.
         unsafe { OpenFileMappingW(FILE_MAP_READ.0, false, PCWSTR(wide.as_ptr())) }.ok()
     })?;
     let mapping = OwnedHandle(mapping);
 
     // Map only the 44-byte header first so we can verify the signature and bounds-check
     // the full reading table length before touching any element offsets.
+    // SAFETY: `mapping.0` is a valid file-mapping handle; mapping 44 bytes read-only.
     let header_view = unsafe { MapViewOfFile(mapping.0, FILE_MAP_READ, 0, 0, HWINFO_HEADER_SIZE) };
     if header_view.Value.is_null() {
         return None;
     }
     let header_guard = MappedView(header_view);
+    // SAFETY: `MapViewOfFile` succeeded with at least `HWINFO_HEADER_SIZE` readable bytes.
     let header = unsafe {
         std::slice::from_raw_parts(header_guard.0.Value as *const u8, HWINFO_HEADER_SIZE)
     };
@@ -156,11 +168,13 @@ fn read_hwinfo_cpu_sensors() -> Option<HwinfoSnapshot> {
         return None;
     }
 
+    // SAFETY: `total_bytes` is bounded by `HWINFO_MAX_MAP_BYTES` and `MapViewOfFile` fails if larger than the mapping.
     let full_view = unsafe { MapViewOfFile(mapping.0, FILE_MAP_READ, 0, 0, total_bytes) };
     if full_view.Value.is_null() {
         return None;
     }
     let full_guard = MappedView(full_view);
+    // SAFETY: `MapViewOfFile` succeeded for `total_bytes`, kept alive by `full_guard`.
     let bytes =
         unsafe { std::slice::from_raw_parts(full_guard.0.Value as *const u8, total_bytes) };
 

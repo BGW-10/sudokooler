@@ -1,3 +1,11 @@
+//! Cross-platform CPU telemetry abstraction and platform backend factory.
+//!
+//! - **Windows**: prefers [`windows_pawnio::WindowsPawnIoSensors`] (standalone PawnIO
+//!   driver + Win32 PDH) and automatically falls back to
+//!   [`windows_hwinfo::WindowsHwinfoSensors`] (`Global\HWiNFO_SENS_SM2` + Win32 PDH).
+//! - **Linux**: uses `linux::LinuxSensors` (`/sys/class/hwmon`, `powercap`,
+//!   `/proc/stat`, and `cpufreq`).
+
 use anyhow::Result;
 
 #[cfg(target_os = "linux")]
@@ -12,9 +20,13 @@ mod windows_pdh;
 /// Cross-platform CPU telemetry snapshot passed to protocol encoders.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Telemetry {
+    /// CPU package or die (`Tctl/Tdie`) temperature in degrees Celsius.
     pub cpu_temp_c: f32,
+    /// Total CPU utilization percentage (`0..=100`).
     pub cpu_usage_pct: u8,
+    /// CPU package power draw in watts (`0..=999`).
     pub cpu_power_w: u16,
+    /// Effective or average CPU clock speed in MHz.
     pub cpu_freq_mhz: u16,
 }
 

@@ -1,3 +1,18 @@
+//! Standalone Windows CPU sensor backend via the signed **PawnIO** kernel driver.
+//!
+//! Communicates directly with `\\?\GLOBALROOT\Device\PawnIO` over Win32 `DeviceIoControl`
+//! without requiring HWiNFO64 or any external runtime:
+//!
+//! 1. **`IOCTL_PIO_LOAD_BINARY`** (`0xA1B2_2084`): loads a signed module binary
+//!    (`AMDFamily17.bin` on AMD Ryzen Zen 1–5, or `IntelMSR.bin` on Intel Core),
+//!    searched in `SUDOKOOLER_PAWNIO_MODULE`, `<exe_dir>\pawnio\`, `<exe_dir>\`,
+//!    `C:\Program Files\PawnIO\modules\`, `C:\Program Files\PawnIO\`, and `.\pawnio\`.
+//! 2. **`IOCTL_PIO_EXECUTE_FN`** (`0xA1B2_2104`): sends a 32-byte ASCII function name
+//!    followed by little-endian `u64` arguments and receives little-endian `u64` results:
+//!    - AMD (`AMDFamily17.bin`): `ioctl_read_smn([0x00059800])` for `Tctl/Tdie` temp and
+//!      `ioctl_read_msr([0xC0010299 | 0xC001029B])` for RAPL package wattage.
+//!    - Intel (`IntelMSR.bin`): `ioctl_read_msr([0x1A2 | 0x1B1 | 0x19C])` for package temp.
+
 use std::ffi::c_void;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -79,6 +94,7 @@ struct PawnIoHandle(HANDLE);
 impl Drop for PawnIoHandle {
     fn drop(&mut self) {
         if !self.0.is_invalid() {
+            // SAFETY: `self.0` was returned by `CreateFileW` and is closed once on drop.
             unsafe {
                 let _ = CloseHandle(self.0);
             }
@@ -89,6 +105,7 @@ impl Drop for PawnIoHandle {
 impl PawnIoHandle {
     fn open() -> std::result::Result<Self, String> {
         let wide = to_wide_null(PAWNIO_DEVICE_PATH);
+        // SAFETY: `wide` is a NUL-terminated UTF-16 path that lives across `CreateFileW`.
         let handle = unsafe {
             CreateFileW(
                 PCWSTR(wide.as_ptr()),
@@ -117,6 +134,7 @@ impl PawnIoHandle {
     fn load_binary(&self, blob: &[u8]) -> Result<()> {
         let len = u32::try_from(blob.len()).context("PawnIO module exceeds 4 GiB")?;
         let mut bytes_returned: u32 = 0;
+        // SAFETY: `self.0` is an open PawnIO handle; `blob` is readable for `len` bytes.
         unsafe {
             DeviceIoControl(
                 self.0,
@@ -139,6 +157,7 @@ impl PawnIoHandle {
         let out_bytes_len = u32::try_from(raw_out.len()).context("PawnIO output too large")?;
         let mut bytes_returned: u32 = 0;
 
+        // SAFETY: `input` and `raw_out` remain valid for `in_len` and `out_bytes_len` bytes during synchronous I/O.
         unsafe {
             DeviceIoControl(
                 self.0,
@@ -172,6 +191,7 @@ struct PciMutexGuard {
 impl PciMutexGuard {
     fn acquire_best_effort() -> Self {
         let wide = to_wide_null(ACCESS_PCI_MUTEX_NAME);
+        // SAFETY: `wide` is NUL-terminated UTF-16; ownership of the created/opened mutex handle lives in `Self`.
         let Ok(handle) = (unsafe { CreateMutexW(None, false, PCWSTR(wide.as_ptr())) }) else {
             return Self {
                 handle: HANDLE::default(),
@@ -179,6 +199,7 @@ impl PciMutexGuard {
             };
         };
 
+        // SAFETY: `handle` is a valid mutex handle created/opened directly above.
         let wait = unsafe { WaitForSingleObject(handle, 1000) };
         let acquired = wait == WAIT_OBJECT_0 || wait == WAIT_ABANDONED;
         Self { handle, acquired }
@@ -189,10 +210,12 @@ impl Drop for PciMutexGuard {
     fn drop(&mut self) {
         if !self.handle.is_invalid() {
             if self.acquired {
+                // SAFETY: We own the mutex (`WAIT_OBJECT_0` / `WAIT_ABANDONED`) and release it before closing.
                 unsafe {
                     let _ = ReleaseMutex(self.handle);
                 }
             }
+            // SAFETY: `self.handle` is valid and closed once here on drop.
             unsafe {
                 let _ = CloseHandle(self.handle);
             }

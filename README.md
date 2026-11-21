@@ -97,6 +97,28 @@ Fully supported if you already run **HWiNFO64** or prefer not to install PawnIO 
 
 > **Without PawnIO or HWiNFO64:** `sudokooler` still runs cleanly using Win32 PDH for live CPU usage and frequency, reporting `0.0°C` / `0W` for temperature and power.
 
+## Python Protocol Prototype
+
+A cleaned-up, standalone PEP 723 script ([python/sk700v_prototype.py](python/sk700v_prototype.py)) is included as a self-contained SK700V protocol reference and USB diagnostic tool. It requires no manual virtualenv setup when run with [`uv`](https://docs.astral.sh/uv/):
+
+```bash
+# Verify byte-for-byte parity with captured SK700V USB HID frames (also works with plain python3)
+uv run python/sk700v_prototype.py --self-test
+
+# Enumerate connected 0x381C HID interfaces
+uv run python/sk700v_prototype.py --list
+
+# Print encoded 64-byte demo packets without writing to USB
+uv run python/sk700v_prototype.py --dry-run --demo --count 3
+
+# Decode a captured SK700V telemetry frame
+uv run python/sk700v_prototype.py --decode 106801090d010200281900423c00001013a10516
+
+# Send live demo frames to the SK700V (Ctrl+C sends Display OFF on exit)
+uv run python/sk700v_prototype.py --send --demo
+uv run python/sk700v_prototype.py --off
+```
+
 ## AI Assistance Disclosure
 
 This repository was bootstrapped and developed with assistance from **Google Antigravity** (agentic AI coding assistant), based on reverse-engineered SK700V USB HID captures.

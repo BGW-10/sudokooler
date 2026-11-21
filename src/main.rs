@@ -1,3 +1,9 @@
+//! CLI entrypoint and 1 Hz display-polling daemon for Sudokoo USB HID CPU coolers.
+//!
+//! Coordinates configuration loading ([`config`]), platform CPU telemetry
+//! ([`sensors`]), packet encoding ([`hid::protocol`]), and safe reconnect-aware USB
+//! HID transport ([`hid`]).
+
 mod config;
 mod hid;
 mod sensors;
@@ -52,6 +58,8 @@ fn main() -> Result<()> {
         return cmd_list_devices(&registry);
     }
 
+    // Go note: `Arc<AtomicBool>` is an atomic reference-counted flag shared safely
+    // between the main loop and the OS signal callback thread without a mutex.
     let running = Arc::new(AtomicBool::new(true));
     let signal_flag = Arc::clone(&running);
     ctrlc::set_handler(move || {
@@ -68,6 +76,7 @@ fn main() -> Result<()> {
     cmd_run_daemon(&registry, interval, cli.count, &running)
 }
 
+/// Prints every connected Sudokoo (`VID == 0x381C`) HID interface and its matching profile status.
 fn cmd_list_devices(registry: &DeviceRegistry) -> Result<()> {
     let devices = list_sudokoo_devices(registry)?;
     if devices.is_empty() {
@@ -107,6 +116,7 @@ fn cmd_list_devices(registry: &DeviceRegistry) -> Result<()> {
     Ok(())
 }
 
+/// Polls live sensors and prints encoded 64-byte HID packets to stdout without touching USB.
 fn cmd_dry_run(
     registry: &DeviceRegistry,
     interval: Duration,
@@ -148,6 +158,10 @@ fn cmd_dry_run(
     Ok(())
 }
 
+/// Connects to an allowlisted Sudokoo device and streams telemetry at `interval` until stopped.
+///
+/// Any USB I/O failure drops `active_device` (closing the stale OS handle via RAII) and
+/// retries after a 2-second backoff instead of panicking.
 fn cmd_run_daemon(
     registry: &DeviceRegistry,
     interval: Duration,
@@ -217,6 +231,8 @@ fn cmd_run_daemon(
         sleep_interruptible(interval, running);
     }
 
+    // `Option::take` transfers ownership out so `send_shutdown` runs once and the
+    // `CoolerDevice` handle closes immediately at the end of this block.
     if let Some(dev) = active_device.take() {
         println!("[daemon] shutting down display cleanly...");
         dev.send_shutdown();
@@ -225,6 +241,7 @@ fn cmd_run_daemon(
     Ok(())
 }
 
+/// Sleeps in 100 ms chunks so `Ctrl+C` exits promptly rather than waiting a full polling interval.
 fn sleep_interruptible(duration: Duration, running: &AtomicBool) {
     let step = Duration::from_millis(100);
     let mut remaining = duration;

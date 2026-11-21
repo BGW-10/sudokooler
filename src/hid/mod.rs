@@ -1,3 +1,9 @@
+//! Cross-platform `hidapi` transport with strict `VID`/`PID` allowlisting.
+//!
+//! Only devices matching `VID == 0x381C` and an `enabled = true` entry in
+//! [`DeviceRegistry`] are opened or written to, preventing accidental writes to
+//! unrelated USB HID peripherals or unverified Sudokoo hardware.
+
 pub mod protocol;
 
 use anyhow::{Context, Result, anyhow};
@@ -85,10 +91,12 @@ impl CoolerDevice {
         Ok(Some(cooler))
     }
 
+    /// Returns the matched device profile cloned inside this connection.
     pub fn profile(&self) -> &DeviceProfile {
         &self.profile
     }
 
+    /// Sends every configured initialization control packet (e.g., display ON).
     pub fn send_init(&self) -> Result<()> {
         for hex in &self.profile.init_packets {
             let report = decode_hex_packet(hex, self.profile.report_length)?;
@@ -98,6 +106,7 @@ impl CoolerDevice {
         Ok(())
     }
 
+    /// Encodes `telemetry` for the active profile and writes the HID report to USB.
     pub fn send_telemetry(&self, telemetry: &Telemetry) -> Result<()> {
         let report = encode_telemetry(telemetry, &self.profile)?;
         self.write_report(&report)

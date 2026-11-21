@@ -13,6 +13,7 @@
 - `src/sensors/windows_pawnio.rs` — Standalone Windows sensor backend (`WindowsPawnIoSensors`) using PawnIO (`\\?\GLOBALROOT\Device\PawnIO` + signed `AMDFamily17.bin` / `IntelMSR.bin` modules) and Win32 PDH.
 - `src/sensors/windows_hwinfo.rs` — Fallback Windows sensor backend (`WindowsHwinfoSensors`) using Win32 PDH and opportunistic `Global\HWiNFO_SENS_SM2` shared-memory lookup.
 - `src/sensors/linux.rs` — Linux sensor backend: zero-dependency `/sys/class/hwmon` (`k10temp`, `zenpower`, `coretemp`), `/sys/class/powercap` RAPL fallback, `/proc/stat`, and `cpufreq`/`/proc/cpuinfo`.
+- `python/sk700v_prototype.py` — Standalone PEP 723 (`uv run`) SK700V reference implementation and USB HID diagnostic/decoder tool.
 
 ## Data Contracts
 

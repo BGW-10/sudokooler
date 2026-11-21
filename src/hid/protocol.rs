@@ -1,8 +1,24 @@
+//! Pure, hardware-independent USB HID packet encoders for Sudokoo displays.
+//!
+//! All SK700V HID reports are zero-padded to **64 bytes** starting with Report ID `0x10`:
+//!
+//! ```text
+//! Control (Display ON/OFF, 9 bytes + 55 zero bytes):
+//!   [0]=0x10  [1..=3]=68 01 09  [4]=0x02  [5]=0x03  [6]=state(01|00)  [7]=csum  [8]=0x16
+//!
+//! Telemetry (20 bytes + 44 zero bytes):
+//!   [0]=0x10  [1..=3]=68 01 09  [4]=0x0D  [5]=0x01  [6]=0x02(active)
+//!   [7..=8]=power_w (BE u16)  [9]=power_bar_pct (u8)  [10]=unit(00=C|01=F)
+//!   [11..=14]=temp (BE IEEE-754 f32)  [15]=usage_pct (u8)  [16..=17]=freq_mhz (BE u16)
+//!   [18]=sum(pkt[1..18]) & 0xFF  [19]=0x16  [20..=63]=0x00
+//! ```
+
 use thiserror::Error;
 
 use crate::config::{DeviceProfile, ProtocolKind, TempUnit};
 use crate::sensors::Telemetry;
 
+/// Validation and framing errors produced while encoding or parsing HID packets.
 #[derive(Debug, Error)]
 pub enum ProtocolError {
     #[error("hex packet must not be empty")]
