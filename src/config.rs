@@ -8,8 +8,8 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 
+use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 
 use crate::hid::protocol::decode_hex_packet;
 
@@ -19,27 +19,6 @@ pub const SUDOKOO_VID: u16 = 0x381C;
 /// Built-in default device profiles embedded directly into the binary so `sudokooler`
 /// works standalone without needing external config files on disk.
 pub const DEFAULT_DEVICES_TOML: &str = include_str!("../profiles/default_devices.toml");
-
-/// Structured errors returned when loading or validating a device registry.
-#[derive(Debug, Error)]
-pub enum ConfigError {
-    /// Failed to read a custom TOML file from disk.
-    #[error("failed to read config file '{path}': {source}")]
-    Io {
-        path: String,
-        #[source]
-        source: std::io::Error,
-    },
-    /// TOML syntax or field deserialization failed.
-    #[error("failed to parse TOML device registry: {0}")]
-    Parse(#[from] toml::de::Error),
-    /// A profile violated hardware safety or protocol constraints.
-    #[error("invalid profile '{name}': {reason}")]
-    InvalidProfile { name: String, reason: String },
-    /// Two or more enabled profiles claimed the same USB Product ID.
-    #[error("duplicate enabled device profile for PID 0x{pid:04X}")]
-    DuplicateEnabledPid { pid: u16 },
-}
 
 /// Wire protocol family spoken by a cooler profile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -124,62 +103,55 @@ fn default_power_bar_max_w() -> u16 {
 /// Loads either an explicit `--config` TOML file or the embedded `default_devices.toml`,
 /// then validates every profile against our USB safety invariants.
 ///
-/// Go note: `Result<T, E>` replaces Go's `(T, error)` pair, and `?` propagates errors
-/// upward cleanly without manual `if err != nil` boilerplate.
-pub fn load_registry(path: Option<&Path>) -> Result<DeviceRegistry, ConfigError> {
+/// Go note: `Result<T>` (`anyhow::Result<T>`) replaces Go's `(T, error)` pair, and `?`
+/// propagates errors upward cleanly without manual `if err != nil` boilerplate.
+pub fn load_registry(path: Option<&Path>) -> Result<DeviceRegistry> {
     let raw = match path {
-        Some(p) => fs::read_to_string(p).map_err(|source| ConfigError::Io {
-            path: p.display().to_string(),
-            source,
-        })?,
+        Some(p) => fs::read_to_string(p)
+            .with_context(|| format!("failed to read config file '{}'", p.display()))?,
         None => DEFAULT_DEVICES_TOML.to_string(),
     };
 
-    let registry: DeviceRegistry = toml::from_str(&raw)?;
+    let registry: DeviceRegistry =
+        toml::from_str(&raw).context("failed to parse TOML device registry")?;
     registry.validate()?;
     Ok(registry)
 }
 
 impl DeviceRegistry {
     /// Enforces hardware safety and wire-framing invariants across every configured profile.
-    pub fn validate(&self) -> Result<(), ConfigError> {
+    pub fn validate(&self) -> Result<()> {
         let mut enabled_pids = HashSet::new();
 
         for profile in &self.devices {
             if profile.name.trim().is_empty() {
-                return Err(ConfigError::InvalidProfile {
-                    name: "<unnamed>".to_string(),
-                    reason: "profile name must not be empty".to_string(),
-                });
+                bail!("invalid profile '<unnamed>': profile name must not be empty");
             }
 
             if profile.vid != SUDOKOO_VID {
-                return Err(ConfigError::InvalidProfile {
-                    name: profile.name.clone(),
-                    reason: format!(
-                        "VID 0x{:04X} does not match Sudokoo VID 0x{:04X}",
-                        profile.vid, SUDOKOO_VID
-                    ),
-                });
+                bail!(
+                    "invalid profile '{}': VID 0x{:04X} does not match Sudokoo VID 0x{:04X}",
+                    profile.name,
+                    profile.vid,
+                    SUDOKOO_VID
+                );
             }
 
             if profile.power_bar_max_w == 0 {
-                return Err(ConfigError::InvalidProfile {
-                    name: profile.name.clone(),
-                    reason: "power_bar_max_w must be greater than 0".to_string(),
-                });
+                bail!(
+                    "invalid profile '{}': power_bar_max_w must be greater than 0",
+                    profile.name
+                );
             }
 
             match profile.protocol {
                 ProtocolKind::Sk700v => {
                     if !(20..=64).contains(&profile.report_length) {
-                        return Err(ConfigError::InvalidProfile {
-                            name: profile.name.clone(),
-                            reason: format!(
-                                "sk700v report_length {} must be in 20..=64",
-                                profile.report_length
-                            ),
-                        });
+                        bail!(
+                            "invalid profile '{}': sk700v report_length {} must be in 20..=64",
+                            profile.name,
+                            profile.report_length
+                        );
                     }
                 }
             }
@@ -189,26 +161,27 @@ impl DeviceRegistry {
                 .iter()
                 .chain(profile.shutdown_packets.iter())
             {
-                let decoded = decode_hex_packet(pkt_hex, profile.report_length).map_err(|e| {
-                    ConfigError::InvalidProfile {
-                        name: profile.name.clone(),
-                        reason: format!("invalid control packet '{pkt_hex}': {e}"),
-                    }
-                })?;
+                let decoded = decode_hex_packet(pkt_hex, profile.report_length).with_context(
+                    || {
+                        format!(
+                            "invalid profile '{}': bad control packet '{pkt_hex}'",
+                            profile.name
+                        )
+                    },
+                )?;
 
                 if decoded[0] != profile.report_id {
-                    return Err(ConfigError::InvalidProfile {
-                        name: profile.name.clone(),
-                        reason: format!(
-                            "control packet '{pkt_hex}' starts with 0x{:02X}, expected report_id 0x{:02X}",
-                            decoded[0], profile.report_id
-                        ),
-                    });
+                    bail!(
+                        "invalid profile '{}': control packet '{pkt_hex}' starts with 0x{:02X}, expected report_id 0x{:02X}",
+                        profile.name,
+                        decoded[0],
+                        profile.report_id
+                    );
                 }
             }
 
             if profile.enabled && !enabled_pids.insert(profile.pid) {
-                return Err(ConfigError::DuplicateEnabledPid { pid: profile.pid });
+                bail!("duplicate enabled device profile for PID 0x{:04X}", profile.pid);
             }
         }
 
@@ -245,15 +218,15 @@ mod tests {
         assert!(sk700v.verified);
         assert_eq!(sk700v.report_length, 64);
 
-        // Unverified PIDs must remain disabled by default.
+        // Unverified 0x381C PIDs must not be enabled or present as guessed profiles.
         for unverified_pid in [0x0001u16, 0x0002, 0x0004, 0x0005] {
             assert!(
                 registry.find_enabled_by_pid(unverified_pid).is_none(),
-                "unverified PID 0x{unverified_pid:04X} must not be enabled by default"
+                "unverified PID 0x{unverified_pid:04X} must not be enabled"
             );
             assert!(
-                registry.find_by_pid(unverified_pid).is_some(),
-                "unverified PID 0x{unverified_pid:04X} should be documented in default registry"
+                registry.find_by_pid(unverified_pid).is_none(),
+                "unverified PID 0x{unverified_pid:04X} should remain omitted until verified"
             );
         }
     }

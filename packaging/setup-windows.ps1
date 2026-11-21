@@ -9,8 +9,8 @@
          is not set), downloads the latest PawnIO_setup.exe from the official GitHub
          release (namazso/PawnIO.Setup) and runs the installer.
       2. Downloads the latest signed module archive from namazso/PawnIO.Modules on GitHub,
-         extracts AMDFamily17.bin and IntelMSR.bin, and copies them into
-         C:\Program Files\PawnIO\modules\ (or -ModulesDir).
+         extracts AMDFamily17.bin, and copies it into C:\Program Files\PawnIO\modules\
+         (or -ModulesDir).
       3. Cleans up its temporary download directory on exit.
       4. (Optional, with -RegisterTask) Registers a Windows Task Scheduler logon task
          named "sudokooler" configured to run sudokooler.exe with highest privileges.
@@ -123,7 +123,7 @@ try {
     Expand-Archive -LiteralPath $zipPath -DestinationPath $extractDir -Force
 
     New-Item -ItemType Directory -Path $ModulesDir -Force | Out-Null
-    $wantedModules = @("AMDFamily17.bin", "IntelMSR.bin")
+    $wantedModules = @("AMDFamily17.bin")
     foreach ($modName in $wantedModules) {
         $found = Get-ChildItem -Path $extractDir -Filter $modName -Recurse -File | Select-Object -First 1
         if (-not $found) {

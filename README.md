@@ -58,7 +58,7 @@ Ideal if you want `sudokooler` to run completely standalone (~2–4 MB RAM, zero
 
 **Automated Setup (`packaging/setup-windows.ps1`)** — run from an **elevated (Administrator)** PowerShell prompt:
 ```powershell
-# Install PawnIO driver + signed AMDFamily17.bin & IntelMSR.bin modules
+# Install PawnIO driver + signed AMDFamily17.bin module (AMD Ryzen)
 .\packaging\setup-windows.ps1
 
 # Optional: also build release binary first and register an elevated auto-start logon task
@@ -67,19 +67,17 @@ cargo build --release
 ```
 What `packaging/setup-windows.ps1` automates:
 - Checks if PawnIO is already installed; if not, downloads `PawnIO_setup.exe` from the latest [namazso/PawnIO.Setup](https://github.com/namazso/PawnIO.Setup/releases) GitHub release and runs the installer.
-- Downloads the latest [namazso/PawnIO.Modules](https://github.com/namazso/PawnIO.Modules/releases) release zip, extracts `AMDFamily17.bin` and `IntelMSR.bin`, and installs them into `C:\Program Files\PawnIO\modules\`.
+- Downloads the latest [namazso/PawnIO.Modules](https://github.com/namazso/PawnIO.Modules/releases) release zip, extracts `AMDFamily17.bin`, and installs it into `C:\Program Files\PawnIO\modules\`.
 - Cleans up its temporary working folder automatically.
 - *(Only when `-RegisterTask` is passed)* Registers a Windows Task Scheduler logon task named `sudokooler` configured with **Run with highest privileges**. *(Supports `-SkipDriver`, `-ModulesDir`, and `-BinaryPath` flags.)*
 
-**Manual Setup:**
+**Manual Setup (AMD Ryzen):**
 1. Install the signed **PawnIO** kernel driver from [pawnio.eu](https://pawnio.eu/).
-2. Download the signed module binary from [namazso/PawnIO.Modules releases](https://github.com/namazso/PawnIO.Modules/releases):
-   - `AMDFamily17.bin` for AMD Ryzen (Zen 1–5 / Family 17h–1Ah; reads `Tctl/Tdie` temp and RAPL package wattage)
-   - `IntelMSR.bin` for Intel Core CPUs (reads package temperature)
-3. Place the `.bin` module in one of the auto-discovered paths:
-   - `C:\Program Files\PawnIO\modules\` (or `C:\Program Files\PawnIO\`)
-   - A `pawnio\` folder next to `sudokooler.exe` (or alongside `sudokooler.exe` directly)
-   - Or point `SUDOKOOLER_PAWNIO_MODULE` to the `.bin` file or directory.
+2. Download `AMDFamily17.bin` from [namazso/PawnIO.Modules releases](https://github.com/namazso/PawnIO.Modules/releases) (reads Ryzen Zen 1–5 `Tctl/Tdie` temp and RAPL package wattage).
+3. Place `AMDFamily17.bin` in one of the checked locations:
+   - `C:\Program Files\PawnIO\modules\AMDFamily17.bin`
+   - `<exe_dir>\pawnio\AMDFamily17.bin`
+   - Or set `SUDOKOOLER_PAWNIO_MODULE` to the `.bin` path or directory.
 4. Run `sudokooler.exe` as Administrator (or via a Task Scheduler logon task with **Run with highest privileges** enabled), since Windows requires elevation to open `\\?\GLOBALROOT\Device\PawnIO`.
 
 #### Option 2: HWiNFO64 Shared Memory (No PawnIO or Elevation Required)
@@ -108,14 +106,14 @@ uv run python/sk700v_prototype.py --self-test
 # Enumerate connected 0x381C HID interfaces
 uv run python/sk700v_prototype.py --list
 
-# Print encoded 64-byte demo packets without writing to USB
-uv run python/sk700v_prototype.py --dry-run --demo --count 3
+# Print encoded 64-byte sample packets without writing to USB
+uv run python/sk700v_prototype.py --dry-run --count 3
 
 # Decode a captured SK700V telemetry frame
 uv run python/sk700v_prototype.py --decode 106801090d010200281900423c00001013a10516
 
-# Send live demo frames to the SK700V (Ctrl+C sends Display OFF on exit)
-uv run python/sk700v_prototype.py --send --demo
+# Send live sample frames to the SK700V (Ctrl+C sends Display OFF on exit)
+uv run python/sk700v_prototype.py --send
 uv run python/sk700v_prototype.py --off
 ```
 

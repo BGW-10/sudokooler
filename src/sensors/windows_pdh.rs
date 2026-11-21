@@ -7,12 +7,26 @@
 use std::time::Duration;
 
 use anyhow::{Result, anyhow};
-use windows::Win32::Foundation::ERROR_SUCCESS;
+use windows::Win32::Foundation::{CloseHandle, ERROR_SUCCESS, HANDLE};
 use windows::Win32::System::Performance::{
     PDH_FMT_COUNTERVALUE, PDH_FMT_DOUBLE, PDH_HCOUNTER, PDH_HQUERY, PdhAddEnglishCounterW,
     PdhCloseQuery, PdhCollectQueryData, PdhGetFormattedCounterValue, PdhOpenQueryW,
 };
 use windows::core::PCWSTR;
+
+/// RAII wrapper around a Win32 kernel `HANDLE` so it closes automatically on drop.
+pub(super) struct OwnedHandle(pub HANDLE);
+
+impl Drop for OwnedHandle {
+    fn drop(&mut self) {
+        if !self.0.is_invalid() {
+            // SAFETY: `self.0` is an open Win32 kernel handle closed once on drop.
+            unsafe {
+                let _ = CloseHandle(self.0);
+            }
+        }
+    }
+}
 
 /// RAII wrapper around a Win32 PDH query handle so it always closes on drop.
 struct PdhQuery {

@@ -13,25 +13,10 @@
 //!   [18]=sum(pkt[1..18]) & 0xFF  [19]=0x16  [20..=63]=0x00
 //! ```
 
-use thiserror::Error;
+use anyhow::{Context, Result, bail};
 
 use crate::config::{DeviceProfile, ProtocolKind, TempUnit};
 use crate::sensors::Telemetry;
-
-/// Validation and framing errors produced while encoding or parsing HID packets.
-#[derive(Debug, Error)]
-pub enum ProtocolError {
-    #[error("hex packet must not be empty")]
-    EmptyHex,
-    #[error("hex packet length ({0}) must be even")]
-    OddHexLength(usize),
-    #[error("invalid hex byte '{0}'")]
-    InvalidHexByte(String),
-    #[error("packet length {actual} exceeds report_length {max}")]
-    PacketTooLong { actual: usize, max: usize },
-    #[error("invalid report_length {0} for sk700v (expected 20..=64)")]
-    InvalidReportLength(usize),
-}
 
 /// Computes the 8-bit checksum over bytes `1..18` (excluding byte `0`, the HID Report ID).
 pub fn compute_checksum(frame: &[u8]) -> u8 {
@@ -43,12 +28,13 @@ pub fn compute_checksum(frame: &[u8]) -> u8 {
 }
 
 /// Zero-pads a slice up to `report_length`.
-pub fn pad_report(bytes: &[u8], report_length: usize) -> Result<Vec<u8>, ProtocolError> {
+pub fn pad_report(bytes: &[u8], report_length: usize) -> Result<Vec<u8>> {
     if bytes.len() > report_length {
-        return Err(ProtocolError::PacketTooLong {
-            actual: bytes.len(),
-            max: report_length,
-        });
+        bail!(
+            "packet length {} exceeds report_length {}",
+            bytes.len(),
+            report_length
+        );
     }
     let mut padded = vec![0u8; report_length];
     padded[..bytes.len()].copy_from_slice(bytes);
@@ -56,21 +42,21 @@ pub fn pad_report(bytes: &[u8], report_length: usize) -> Result<Vec<u8>, Protoco
 }
 
 /// Parses a hex string (whitespace allowed) and zero-pads it to `report_length`.
-pub fn decode_hex_packet(hex: &str, report_length: usize) -> Result<Vec<u8>, ProtocolError> {
+pub fn decode_hex_packet(hex: &str, report_length: usize) -> Result<Vec<u8>> {
     let clean: String = hex.chars().filter(|c| !c.is_whitespace()).collect();
     if clean.is_empty() {
-        return Err(ProtocolError::EmptyHex);
+        bail!("hex packet must not be empty");
     }
     if clean.len() % 2 != 0 {
-        return Err(ProtocolError::OddHexLength(clean.len()));
+        bail!("hex packet length ({}) must be even", clean.len());
     }
 
     let mut raw = Vec::with_capacity(clean.len() / 2);
     for chunk in clean.as_bytes().chunks_exact(2) {
         let pair = std::str::from_utf8(chunk)
-            .map_err(|_| ProtocolError::InvalidHexByte(String::from_utf8_lossy(chunk).into()))?;
+            .with_context(|| format!("invalid UTF-8 in hex chunk '{}'", String::from_utf8_lossy(chunk)))?;
         let byte = u8::from_str_radix(pair, 16)
-            .map_err(|_| ProtocolError::InvalidHexByte(pair.to_string()))?;
+            .with_context(|| format!("invalid hex byte '{pair}'"))?;
         raw.push(byte);
     }
 
@@ -134,14 +120,14 @@ pub fn encode_sk700v_packet(telemetry: &Telemetry, profile: &DeviceProfile) -> [
 }
 
 /// Encodes `telemetry` according to `profile.protocol` and sizes it to `profile.report_length`.
-pub fn encode_telemetry(
-    telemetry: &Telemetry,
-    profile: &DeviceProfile,
-) -> Result<Vec<u8>, ProtocolError> {
+pub fn encode_telemetry(telemetry: &Telemetry, profile: &DeviceProfile) -> Result<Vec<u8>> {
     match profile.protocol {
         ProtocolKind::Sk700v => {
             if !(20..=64).contains(&profile.report_length) {
-                return Err(ProtocolError::InvalidReportLength(profile.report_length));
+                bail!(
+                    "invalid report_length {} for sk700v (expected 20..=64)",
+                    profile.report_length
+                );
             }
             let frame = encode_sk700v_packet(telemetry, profile);
             Ok(frame[..profile.report_length].to_vec())

@@ -9,8 +9,8 @@
 - `src/hid/protocol.rs` — Pure, hardware-independent packet encoding, checksum calculation, and 64-byte zero-padding (`encode_sk700v_packet`, `encode_telemetry`, `compute_checksum`). Covered by unit tests asserting byte-for-byte parity with captured SK700V USB HID frames.
 - `src/hid/mod.rs` — Cross-platform `hidapi` enumerator and `CoolerDevice` handle wrapper with safe disconnect/reconnect handling.
 - `src/sensors/mod.rs` — Cross-platform `Telemetry` struct and `SensorProvider` trait.
-- `src/sensors/windows_pdh.rs` — Shared Win32 PDH (`Processor Information(_Total)`) helper for CPU usage and effective clock speed.
-- `src/sensors/windows_pawnio.rs` — Standalone Windows sensor backend (`WindowsPawnIoSensors`) using PawnIO (`\\?\GLOBALROOT\Device\PawnIO` + signed `AMDFamily17.bin` / `IntelMSR.bin` modules) and Win32 PDH.
+- `src/sensors/windows_pdh.rs` — Shared Win32 PDH (`Processor Information(_Total)`) helper and RAII `OwnedHandle` wrapper.
+- `src/sensors/windows_pawnio.rs` — Standalone Windows AMD Ryzen sensor backend (`WindowsPawnIoSensors`) using PawnIO (`\\?\GLOBALROOT\Device\PawnIO` + signed `AMDFamily17.bin`) and Win32 PDH.
 - `src/sensors/windows_hwinfo.rs` — Fallback Windows sensor backend (`WindowsHwinfoSensors`) using Win32 PDH and opportunistic `Global\HWiNFO_SENS_SM2` shared-memory lookup.
 - `src/sensors/linux.rs` — Linux sensor backend: zero-dependency `/sys/class/hwmon` (`k10temp`, `zenpower`, `coretemp`), `/sys/class/powercap` RAPL fallback, `/proc/stat`, and `cpufreq`/`/proc/cpuinfo`.
 - `python/sk700v_prototype.py` — Standalone PEP 723 (`uv run`) SK700V reference implementation and USB HID diagnostic/decoder tool.
@@ -59,14 +59,14 @@ All reports are **64 bytes** zero-padded, starting with HID Report ID `0x10`:
 ## Hardware Safety Guardrails
 
 1. **Strict VID/PID Allowlisting:** Never open or write to any USB HID device unless `vendor_id == 0x381C` AND `product_id` matches an **enabled** `DeviceProfile` in the validated registry.
-2. **Unverified PIDs Disabled:** MasterCraft's `index.jsc` also lists `0x381C` PIDs `0x0001`, `0x0002`, `0x0004`, and `0x0005` alongside models (`SK700V MACH`, `SK620V`, `PROTEUS`, `ENERGLO`). They are documented in `profiles/default_devices.toml` with `enabled = false` and `verified = false`—do not enable them until captured and verified on physical hardware.
+2. **Unverified PIDs Omitted:** MasterCraft's `index.jsc` also lists `0x381C` PIDs `0x0001`, `0x0002`, `0x0004`, and `0x0005` alongside models (`SK700V MACH`, `SK620V`, `PROTEUS`, `ENERGLO`). They are noted as comments in `profiles/default_devices.toml`—do not add enabled profiles for them until captured and verified on physical hardware.
 3. **No Panics on I/O Errors:** USB unplugs, sleep/wake cycles, or transient HID write failures must return `Err(...)`, drop the stale `HidDevice`, log cleanly, and retry with backoff.
 4. **No Proprietary Assets in Git:** Never copy or commit MasterCraft `.exe`, `.dll`, `.asar`, `.jsc`, `.node`, or raw captures into this repository.
 
 ## Go-to-Rust Conventions for Contributors
 
 - **Synchronous by design:** Standard blocking threads + `std::thread::sleep` — no `tokio` or async runtimes.
-- **Errors (`Result<T, E>` and `?`):** Functions return `Result` instead of Go's `(T, error)` tuple; `?` propagates errors upward like `if err != nil { return err }`. Use `thiserror` for structured domain errors (`config`, `protocol`) and `anyhow::Result` at application/driver boundaries.
+- **Errors (`Result<T>` and `?`):** Functions return `anyhow::Result<T>` instead of Go's `(T, error)` tuple; `?` propagates errors upward like `if err != nil { return err }`.
 - **Ownership & Borrowing:** Pass `&DeviceProfile` / `&[u8]` (read-only borrows) rather than cloning unless ownership needs to live inside a long-lived struct (such as `CoolerDevice`).
 - **Traits vs Go Interfaces:** `SensorProvider` is implemented explicitly (`impl SensorProvider for WindowsPawnIoSensors`, `WindowsHwinfoSensors`, `LinuxSensors`), and the factory returns `Box<dyn SensorProvider>`.
 - **RAII Cleanup (`Drop`):** OS handles (`PDH_HQUERY`, `HANDLE`, mapped views, `HidDevice`) clean up automatically when their owning struct goes out of scope (replacing Go's `defer`).

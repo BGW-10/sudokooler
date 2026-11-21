@@ -20,67 +20,10 @@ init_packets = ["106801090203017816"]
 shutdown_packets = ["106801090203007716"]
 
 # ---------------------------------------------------------------------------
-# Unverified 0x381C PIDs discovered in MasterCraft's main bundle (`index.jsc`)
-# alongside Sudokoo product models: SK700V MACH, SK620V, PROTEUS, ENERGLO.
+# Other 0x381C PIDs discovered in MasterCraft's main bundle (`index.jsc`):
+#   PIDs: 0x0001, 0x0002, 0x0004, 0x0005
+#   Candidate models: SK700V MACH, SK620V, PROTEUS, ENERGLO
 #
-# Because `index.jsc` is compiled V8 bytecode without a plaintext PID->model
-# manifest, the exact PID-to-model mapping and packet schemas for these
-# devices are NOT yet hardware-verified. Keep `enabled = false` until tested
-# with USB captures on real hardware.
+# Intentionally omitted until captured and verified on physical hardware (not
+# all Sudokoo devices share the SK700V segmented-display packet schema).
 # ---------------------------------------------------------------------------
-
-[[devices]]
-name = "Sudokoo Unverified Model (PID 0x0001 - candidate: SK700V MACH / SK620V / PROTEUS / ENERGLO)"
-vid = 0x381C
-pid = 0x0001
-protocol = "sk700v"
-enabled = false
-verified = false
-report_id = 0x10
-report_length = 64
-power_bar_max_w = 160
-temp_unit = "C"
-init_packets = ["106801090203017816"]
-shutdown_packets = ["106801090203007716"]
-
-[[devices]]
-name = "Sudokoo Unverified Model (PID 0x0002 - candidate: SK700V MACH / SK620V / PROTEUS / ENERGLO)"
-vid = 0x381C
-pid = 0x0002
-protocol = "sk700v"
-enabled = false
-verified = false
-report_id = 0x10
-report_length = 64
-power_bar_max_w = 160
-temp_unit = "C"
-init_packets = ["106801090203017816"]
-shutdown_packets = ["106801090203007716"]
-
-[[devices]]
-name = "Sudokoo Unverified Model (PID 0x0004 - candidate: SK700V MACH / SK620V / PROTEUS / ENERGLO)"
-vid = 0x381C
-pid = 0x0004
-protocol = "sk700v"
-enabled = false
-verified = false
-report_id = 0x10
-report_length = 64
-power_bar_max_w = 160
-temp_unit = "C"
-init_packets = ["106801090203017816"]
-shutdown_packets = ["106801090203007716"]
-
-[[devices]]
-name = "Sudokoo Unverified Model (PID 0x0005 - candidate: SK700V MACH / SK620V / PROTEUS / ENERGLO)"
-vid = 0x381C
-pid = 0x0005
-protocol = "sk700v"
-enabled = false
-verified = false
-report_id = 0x10
-report_length = 64
-power_bar_max_w = 160
-temp_unit = "C"
-init_packets = ["106801090203017816"]
-shutdown_packets = ["106801090203007716"]

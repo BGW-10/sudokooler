@@ -5,13 +5,12 @@
 //! reading section with bounds checking, and extracts CPU package temperature & wattage.
 
 use anyhow::Result;
-use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::System::Memory::{
     FILE_MAP_READ, MEMORY_MAPPED_VIEW_ADDRESS, MapViewOfFile, OpenFileMappingW, UnmapViewOfFile,
 };
 use windows::core::PCWSTR;
 
-use super::windows_pdh::{PdhCpuCounters, to_wide_null};
+use super::windows_pdh::{OwnedHandle, PdhCpuCounters, to_wide_null};
 use super::{SensorProvider, Telemetry};
 
 const HWINFO_SHMEM_NAMES: &[&str] = &["Global\\HWiNFO_SENS_SM2", "Local\\HWiNFO_SENS_SM2"];
@@ -23,19 +22,6 @@ const HWINFO_TYPE_TEMP: u32 = 1;
 const HWINFO_TYPE_POWER: u32 = 5;
 const HWINFO_TYPE_CLOCK: u32 = 6;
 const HWINFO_TYPE_USAGE: u32 = 7;
-
-struct OwnedHandle(HANDLE);
-
-impl Drop for OwnedHandle {
-    fn drop(&mut self) {
-        if !self.0.is_invalid() {
-            // SAFETY: `self.0` is an open Win32 kernel handle closed once on drop.
-            unsafe {
-                let _ = CloseHandle(self.0);
-            }
-        }
-    }
-}
 
 struct MappedView(MEMORY_MAPPED_VIEW_ADDRESS);
 
