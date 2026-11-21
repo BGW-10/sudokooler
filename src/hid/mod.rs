@@ -12,7 +12,7 @@ use hidapi::{DeviceInfo, HidApi, HidDevice};
 use crate::config::{DeviceProfile, DeviceRegistry, SUDOKOO_VID};
 use crate::sensors::Telemetry;
 
-use self::protocol::{decode_hex_packet, encode_telemetry};
+use self::protocol::{DisplayProtocol, decode_hex_packet, for_protocol};
 
 /// Metadata about a discovered Sudokoo (`0x381C`) HID interface for diagnostics and `--list-devices`.
 #[derive(Debug, Clone)]
@@ -36,6 +36,7 @@ pub struct DetectedDevice {
 pub struct CoolerDevice {
     device: HidDevice,
     profile: DeviceProfile,
+    protocol: Box<dyn DisplayProtocol>,
 }
 
 impl CoolerDevice {
@@ -86,6 +87,7 @@ impl CoolerDevice {
         let cooler = Self {
             device,
             profile: profile.clone(),
+            protocol: for_protocol(profile.protocol),
         };
         cooler.send_init()?;
         Ok(Some(cooler))
@@ -94,6 +96,11 @@ impl CoolerDevice {
     /// Returns the matched device profile cloned inside this connection.
     pub fn profile(&self) -> &DeviceProfile {
         &self.profile
+    }
+
+    /// Returns the active display protocol identifier (e.g., `"sk700v"`).
+    pub fn protocol_name(&self) -> &'static str {
+        self.protocol.name()
     }
 
     /// Sends every configured initialization control packet (e.g., display ON).
@@ -106,11 +113,13 @@ impl CoolerDevice {
         Ok(())
     }
 
-    /// Encodes `telemetry` for the active profile and writes the HID report to USB.
+    /// Encodes `telemetry` via the active [`DisplayProtocol`] and writes all resulting HID reports.
     pub fn send_telemetry(&self, telemetry: &Telemetry) -> Result<()> {
-        let report = encode_telemetry(telemetry, &self.profile)?;
-        self.write_report(&report)
-            .context("failed to send telemetry report")
+        for report in self.protocol.encode_telemetry(telemetry, &self.profile)? {
+            self.write_report(&report)
+                .context("failed to send telemetry report")?;
+        }
+        Ok(())
     }
 
     /// Best-effort display turn-off on clean shutdown (ignores write errors if already unplugged).

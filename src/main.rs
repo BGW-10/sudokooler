@@ -17,7 +17,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 
 use crate::config::{DeviceRegistry, SUDOKOO_VID, load_registry};
-use crate::hid::protocol::{encode_telemetry, format_hex};
+use crate::hid::protocol::{for_protocol, format_hex};
 use crate::hid::{CoolerDevice, list_sudokoo_devices};
 use crate::sensors::default_provider;
 
@@ -127,26 +127,35 @@ fn cmd_dry_run(
         .first_enabled()
         .context("no enabled device profiles found in registry")?;
     let mut sensors = default_provider()?;
+    let protocol = for_protocol(profile.protocol);
     println!(
-        "[dry-run] sensor backend: {} | target profile: {} ({:04X}:{:04X})",
+        "[dry-run] sensor backend: {} | target profile: {} ({:04X}:{:04X}, protocol: {})",
         sensors.backend_name(),
         profile.name,
         profile.vid,
-        profile.pid
+        profile.pid,
+        protocol.name()
     );
 
     let mut iterations = 0usize;
     while running.load(Ordering::SeqCst) {
         let telemetry = sensors.read()?;
-        let packet = encode_telemetry(&telemetry, profile)?;
-        println!(
-            "[dry-run] temp={:.1}C load={}% power={}W freq={}MHz | {}",
-            telemetry.cpu_temp_c,
-            telemetry.cpu_usage_pct,
-            telemetry.cpu_power_w,
-            telemetry.cpu_freq_mhz,
-            format_hex(&packet)
-        );
+        let reports = protocol.encode_telemetry(&telemetry, profile)?;
+        for (idx, packet) in reports.iter().enumerate() {
+            let suffix = if reports.len() > 1 {
+                format!(" [{}/{}]", idx + 1, reports.len())
+            } else {
+                String::new()
+            };
+            println!(
+                "[dry-run]{suffix} temp={:.1}C load={}% power={}W freq={}MHz | {}",
+                telemetry.cpu_temp_c,
+                telemetry.cpu_usage_pct,
+                telemetry.cpu_power_w,
+                telemetry.cpu_freq_mhz,
+                format_hex(packet)
+            );
+        }
 
         iterations += 1;
         if max_count > 0 && iterations >= max_count {
@@ -180,10 +189,11 @@ fn cmd_run_daemon(
             match CoolerDevice::open_first(registry) {
                 Ok(Some(dev)) => {
                     println!(
-                        "[daemon] connected to {} ({:04X}:{:04X})",
+                        "[daemon] connected to {} ({:04X}:{:04X}, protocol: {})",
                         dev.profile().name,
                         dev.profile().vid,
-                        dev.profile().pid
+                        dev.profile().pid,
+                        dev.protocol_name()
                     );
                     active_device = Some(dev);
                     waiting_logged = false;

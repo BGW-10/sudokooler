@@ -117,6 +117,11 @@ uv run python/sk700v_prototype.py --send
 uv run python/sk700v_prototype.py --off
 ```
 
+## Documentation
+
+- [Architecture Guide](docs/ARCHITECTURE.md) — data flow, module map, safety guardrails, and Go-to-Rust quick reference
+- [Adding a Protocol or Sensor Backend](docs/ADDING_A_PROTOCOL.md) — step-by-step expansion guide
+
 ## AI Assistance Disclosure
 
 This repository was bootstrapped and developed with assistance from **Google Antigravity** (agentic AI coding assistant), based on reverse-engineered SK700V USB HID captures.

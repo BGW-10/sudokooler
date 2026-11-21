@@ -11,7 +11,7 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
-use crate::hid::protocol::decode_hex_packet;
+use crate::hid::protocol::{decode_hex_packet, for_protocol};
 
 /// Sudokoo USB Vendor ID (`0x381C`). All devices opened by `sudokooler` must match this VID.
 pub const SUDOKOO_VID: u16 = 0x381C;
@@ -144,17 +144,7 @@ impl DeviceRegistry {
                 );
             }
 
-            match profile.protocol {
-                ProtocolKind::Sk700v => {
-                    if !(20..=64).contains(&profile.report_length) {
-                        bail!(
-                            "invalid profile '{}': sk700v report_length {} must be in 20..=64",
-                            profile.name,
-                            profile.report_length
-                        );
-                    }
-                }
-            }
+            for_protocol(profile.protocol).validate_profile(profile)?;
 
             for pkt_hex in profile
                 .init_packets

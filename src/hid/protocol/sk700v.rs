@@ -1,4 +1,4 @@
-//! Pure, hardware-independent USB HID packet encoders for Sudokoo displays.
+//! Sudokoo SK700V 64-byte USB HID wire protocol (`VID = 0x381C`, `PID = 0x0003`).
 //!
 //! All SK700V HID reports are zero-padded to **64 bytes** starting with Report ID `0x10`:
 //!
@@ -13,10 +13,42 @@
 //!   [18]=sum(pkt[1..18]) & 0xFF  [19]=0x16  [20..=63]=0x00
 //! ```
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 
-use crate::config::{DeviceProfile, ProtocolKind, TempUnit};
+use crate::config::{DeviceProfile, TempUnit};
 use crate::sensors::Telemetry;
+
+use super::DisplayProtocol;
+
+/// Protocol encoder for the Sudokoo SK700V digital segmented cooler display.
+pub struct Sk700vProtocol;
+
+impl DisplayProtocol for Sk700vProtocol {
+    fn name(&self) -> &'static str {
+        "sk700v"
+    }
+
+    fn validate_profile(&self, profile: &DeviceProfile) -> Result<()> {
+        if !(20..=64).contains(&profile.report_length) {
+            bail!(
+                "invalid profile '{}': sk700v report_length {} must be in 20..=64",
+                profile.name,
+                profile.report_length
+            );
+        }
+        Ok(())
+    }
+
+    fn encode_telemetry(
+        &self,
+        telemetry: &Telemetry,
+        profile: &DeviceProfile,
+    ) -> Result<Vec<Vec<u8>>> {
+        self.validate_profile(profile)?;
+        let frame = encode_packet(telemetry, profile);
+        Ok(vec![frame[..profile.report_length].to_vec()])
+    }
+}
 
 /// Computes the 8-bit checksum over bytes `1..18` (excluding byte `0`, the HID Report ID).
 pub fn compute_checksum(frame: &[u8]) -> u8 {
@@ -27,60 +59,8 @@ pub fn compute_checksum(frame: &[u8]) -> u8 {
         .fold(0u8, |acc, &b| acc.wrapping_add(b))
 }
 
-/// Zero-pads a slice up to `report_length`.
-pub fn pad_report(bytes: &[u8], report_length: usize) -> Result<Vec<u8>> {
-    if bytes.len() > report_length {
-        bail!(
-            "packet length {} exceeds report_length {}",
-            bytes.len(),
-            report_length
-        );
-    }
-    let mut padded = vec![0u8; report_length];
-    padded[..bytes.len()].copy_from_slice(bytes);
-    Ok(padded)
-}
-
-/// Parses a hex string (whitespace allowed) and zero-pads it to `report_length`.
-pub fn decode_hex_packet(hex: &str, report_length: usize) -> Result<Vec<u8>> {
-    let clean: String = hex.chars().filter(|c| !c.is_whitespace()).collect();
-    if clean.is_empty() {
-        bail!("hex packet must not be empty");
-    }
-    if clean.len() % 2 != 0 {
-        bail!("hex packet length ({}) must be even", clean.len());
-    }
-
-    let mut raw = Vec::with_capacity(clean.len() / 2);
-    for chunk in clean.as_bytes().chunks_exact(2) {
-        let pair = std::str::from_utf8(chunk)
-            .with_context(|| format!("invalid UTF-8 in hex chunk '{}'", String::from_utf8_lossy(chunk)))?;
-        let byte = u8::from_str_radix(pair, 16)
-            .with_context(|| format!("invalid hex byte '{pair}'"))?;
-        raw.push(byte);
-    }
-
-    pad_report(&raw, report_length)
-}
-
-/// Encodes a `Telemetry` sample into the exact 64-byte HID report used by the Sudokoo SK700V.
-///
-/// Layout (verified against SK700V USB HID captures):
-/// - `[0]`: HID Report ID (`0x10`)
-/// - `[1..=3]`: Header (`0x68, 0x01, 0x09`)
-/// - `[4]`: Payload byte count (`0x0D` = 13 bytes covering `[5..=17]`)
-/// - `[5]`: Telemetry command (`0x01`)
-/// - `[6]`: Display state (`0x02` = active/on; `0x00` = instant turn-off)
-/// - `[7..=8]`: CPU package power in watts, big-endian `u16` (clamped `0..=999`)
-/// - `[9]`: Power bar percentage `u8` (`0..=100`, scaled against `profile.power_bar_max_w`)
-/// - `[10]`: Temperature unit flag (`0x00` = Celsius, `0x01` = Fahrenheit)
-/// - `[11..=14]`: Temperature as IEEE-754 big-endian `f32`
-/// - `[15]`: CPU usage percentage `u8` (`0..=100`)
-/// - `[16..=17]`: CPU frequency in MHz, big-endian `u16`
-/// - `[18]`: Checksum (`sum(pkt[1..18]) & 0xFF`)
-/// - `[19]`: Terminator (`0x16`)
-/// - `[20..=63]`: Zero padding (`0x00`)
-pub fn encode_sk700v_packet(telemetry: &Telemetry, profile: &DeviceProfile) -> [u8; 64] {
+/// Encodes a [`Telemetry`] sample into the raw 64-byte SK700V HID report.
+pub fn encode_packet(telemetry: &Telemetry, profile: &DeviceProfile) -> [u8; 64] {
     let mut pkt = [0u8; 64];
 
     pkt[0] = profile.report_id;
@@ -119,36 +99,11 @@ pub fn encode_sk700v_packet(telemetry: &Telemetry, profile: &DeviceProfile) -> [
     pkt
 }
 
-/// Encodes `telemetry` according to `profile.protocol` and sizes it to `profile.report_length`.
-pub fn encode_telemetry(telemetry: &Telemetry, profile: &DeviceProfile) -> Result<Vec<u8>> {
-    match profile.protocol {
-        ProtocolKind::Sk700v => {
-            if !(20..=64).contains(&profile.report_length) {
-                bail!(
-                    "invalid report_length {} for sk700v (expected 20..=64)",
-                    profile.report_length
-                );
-            }
-            let frame = encode_sk700v_packet(telemetry, profile);
-            Ok(frame[..profile.report_length].to_vec())
-        }
-    }
-}
-
-/// Formats a byte slice as lowercase contiguous hex.
-pub fn format_hex(bytes: &[u8]) -> String {
-    use std::fmt::Write as _;
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for &b in bytes {
-        let _ = write!(&mut out, "{b:02x}");
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::SUDOKOO_VID;
+    use crate::config::{ProtocolKind, SUDOKOO_VID};
+    use crate::hid::protocol::{decode_hex_packet, for_protocol, format_hex};
 
     fn sk700v_profile(power_bar_max_w: u16, temp_unit: TempUnit) -> DeviceProfile {
         DeviceProfile {
@@ -174,6 +129,8 @@ mod tests {
         // MasterCraft USB HID captures were recorded on a Ryzen 9800X3D
         // using floor(power_w * 100 / 156) for the power bar byte.
         let profile = sk700v_profile(156, TempUnit::C);
+        let protocol = for_protocol(profile.protocol);
+        assert_eq!(protocol.name(), "sk700v");
 
         let samples = [
             (
@@ -252,10 +209,11 @@ mod tests {
 
         for (telemetry, expected_short_hex) in samples {
             let expected = decode_hex_packet(expected_short_hex, 64).unwrap();
-            let actual = encode_telemetry(&telemetry, &profile).unwrap();
-            assert_eq!(actual.len(), 64);
+            let reports = protocol.encode_telemetry(&telemetry, &profile).unwrap();
+            assert_eq!(reports.len(), 1);
+            assert_eq!(reports[0].len(), 64);
             assert_eq!(
-                format_hex(&actual),
+                format_hex(&reports[0]),
                 format_hex(&expected),
                 "mismatch for {telemetry:?}"
             );
@@ -273,14 +231,15 @@ mod tests {
             cpu_usage_pct: 100,
             cpu_freq_mhz: 9995,
         };
-        let actual = encode_telemetry(&telemetry, &profile).unwrap();
+        let reports = Sk700vProtocol
+            .encode_telemetry(&telemetry, &profile)
+            .unwrap();
 
         // Sum of bytes [1..18]:
         // 0x68 + 0x01 + 0x09 + 0x0d + 0x01 + 0x02 + 0x03 + 0xe7 + 0x64 + 0x00
         // + 0x42 + 0xc6 + 0x00 + 0x00 + 0x64 + 0x27 + 0x0b = 0x36E -> 0x6E
-        let expected =
-            decode_hex_packet("106801090d010203e7640042c6000064270b6e16", 64).unwrap();
-        assert_eq!(actual, expected);
+        let expected = decode_hex_packet("106801090d010203e7640042c6000064270b6e16", 64).unwrap();
+        assert_eq!(reports[0], expected);
     }
 
     #[test]
@@ -292,7 +251,7 @@ mod tests {
             cpu_usage_pct: 5,
             cpu_freq_mhz: 3600,
         };
-        let pkt = encode_sk700v_packet(&telemetry, &profile);
+        let pkt = encode_packet(&telemetry, &profile);
         assert_eq!(pkt[10], 0x01);
         assert_eq!(&pkt[11..15], &77.0f32.to_be_bytes());
         assert_eq!(pkt[18], compute_checksum(&pkt));

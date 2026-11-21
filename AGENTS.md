@@ -6,14 +6,16 @@
 
 - `src/main.rs` — CLI entrypoint (`clap`) supporting `--list-devices`, `--dry-run`, `--config <PATH>`, `--interval-ms`, `--count`, and the default 1 Hz polling loop with `Ctrl+C` shutdown.
 - `src/config.rs` — Declarative TOML loader and validator (`profiles/default_devices.toml` embedded via `include_str!`, with optional `--config` file override).
-- `src/hid/protocol.rs` — Pure, hardware-independent packet encoding, checksum calculation, and 64-byte zero-padding (`encode_sk700v_packet`, `encode_telemetry`, `compute_checksum`). Covered by unit tests asserting byte-for-byte parity with captured SK700V USB HID frames.
-- `src/hid/mod.rs` — Cross-platform `hidapi` enumerator and `CoolerDevice` handle wrapper with safe disconnect/reconnect handling.
+- `src/hid/protocol/mod.rs` — `DisplayProtocol` trait, `for_protocol()` factory, and shared USB HID framing helpers (`pad_report`, `decode_hex_packet`, `format_hex`).
+- `src/hid/protocol/sk700v.rs` — `Sk700vProtocol` implementation, checksum calculation (`compute_checksum`), and 64-byte encoder (`encode_packet`). Covered by unit tests asserting byte-for-byte parity with captured SK700V USB HID frames.
+- `src/hid/mod.rs` — Cross-platform `hidapi` enumerator and `CoolerDevice` handle wrapper dispatching via `DisplayProtocol` with safe disconnect/reconnect handling.
 - `src/sensors/mod.rs` — Cross-platform `Telemetry` struct and `SensorProvider` trait.
 - `src/sensors/windows_pdh.rs` — Shared Win32 PDH (`Processor Information(_Total)`) helper and RAII `OwnedHandle` wrapper.
 - `src/sensors/windows_pawnio.rs` — Standalone Windows AMD Ryzen sensor backend (`WindowsPawnIoSensors`) using PawnIO (`\\?\GLOBALROOT\Device\PawnIO` + signed `AMDFamily17.bin`) and Win32 PDH.
 - `src/sensors/windows_hwinfo.rs` — Fallback Windows sensor backend (`WindowsHwinfoSensors`) using Win32 PDH and opportunistic `Global\HWiNFO_SENS_SM2` shared-memory lookup.
 - `src/sensors/linux.rs` — Linux sensor backend: zero-dependency `/sys/class/hwmon` (`k10temp`, `zenpower`, `coretemp`), `/sys/class/powercap` RAPL fallback, `/proc/stat`, and `cpufreq`/`/proc/cpuinfo`.
 - `python/sk700v_prototype.py` — Standalone PEP 723 (`uv run`) SK700V reference implementation and USB HID diagnostic/decoder tool.
+- `docs/ARCHITECTURE.md` & `docs/ADDING_A_PROTOCOL.md` — Architecture overview and protocol/sensor expansion guides.
 
 ## Data Contracts
 
@@ -68,6 +70,6 @@ All reports are **64 bytes** zero-padded, starting with HID Report ID `0x10`:
 - **Synchronous by design:** Standard blocking threads + `std::thread::sleep` — no `tokio` or async runtimes.
 - **Errors (`Result<T>` and `?`):** Functions return `anyhow::Result<T>` instead of Go's `(T, error)` tuple; `?` propagates errors upward like `if err != nil { return err }`.
 - **Ownership & Borrowing:** Pass `&DeviceProfile` / `&[u8]` (read-only borrows) rather than cloning unless ownership needs to live inside a long-lived struct (such as `CoolerDevice`).
-- **Traits vs Go Interfaces:** `SensorProvider` is implemented explicitly (`impl SensorProvider for WindowsPawnIoSensors`, `WindowsHwinfoSensors`, `LinuxSensors`), and the factory returns `Box<dyn SensorProvider>`.
+- **Traits vs Go Interfaces:** `SensorProvider` and `DisplayProtocol` are implemented explicitly (`impl SensorProvider for ...`, `impl DisplayProtocol for Sk700vProtocol`), and factories (`default_provider()`, `for_protocol()`) return `Box<dyn ...>`.
 - **RAII Cleanup (`Drop`):** OS handles (`PDH_HQUERY`, `HANDLE`, mapped views, `HidDevice`) clean up automatically when their owning struct goes out of scope (replacing Go's `defer`).
 - **Keep It Simple:** Avoid unnecessary macros, lifetime annotations, or over-engineered abstractions.
