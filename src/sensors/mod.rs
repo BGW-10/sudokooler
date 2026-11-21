@@ -3,7 +3,11 @@ use anyhow::Result;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(windows)]
-mod windows;
+mod windows_hwinfo;
+#[cfg(windows)]
+mod windows_pawnio;
+#[cfg(windows)]
+mod windows_pdh;
 
 /// Cross-platform CPU telemetry snapshot passed to protocol encoders.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -23,12 +27,20 @@ pub trait SensorProvider {
     fn backend_name(&self) -> &'static str;
 }
 
-/// Constructs the platform-native sensor provider (`Box<dyn SensorProvider>` is a trait object,
-/// analogous to returning a Go interface value backed by a heap-allocated concrete struct).
+/// Factory returning the platform-native sensor provider (`Box<dyn SensorProvider>` is a trait
+/// object, analogous to returning a Go interface value backed by a concrete struct).
+///
+/// On Windows, prefers standalone PawnIO (`WindowsPawnIoSensors`) and automatically falls
+/// back to `WindowsHwinfoSensors` if the PawnIO driver or module is unavailable.
 pub fn default_provider() -> Result<Box<dyn SensorProvider>> {
     #[cfg(windows)]
     {
-        Ok(Box::new(windows::WindowsSensors::new()?))
+        match windows_pawnio::WindowsPawnIoSensors::try_new() {
+            Ok(pawnio) => Ok(Box::new(pawnio)),
+            Err(reason) => Ok(Box::new(windows_hwinfo::WindowsHwinfoSensors::new(Some(
+                reason,
+            ))?)),
+        }
     }
 
     #[cfg(target_os = "linux")]

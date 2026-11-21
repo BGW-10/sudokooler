@@ -9,7 +9,9 @@
 - `src/hid/protocol.rs` — Pure, hardware-independent packet encoding, checksum calculation, and 64-byte zero-padding (`encode_sk700v_packet`, `encode_telemetry`, `compute_checksum`). Covered by unit tests asserting byte-for-byte parity with captured SK700V USB HID frames.
 - `src/hid/mod.rs` — Cross-platform `hidapi` enumerator and `CoolerDevice` handle wrapper with safe disconnect/reconnect handling.
 - `src/sensors/mod.rs` — Cross-platform `Telemetry` struct and `SensorProvider` trait.
-- `src/sensors/windows.rs` — Windows sensor backend: Win32 PDH (`Processor Information(_Total)`) for CPU usage and effective frequency, plus opportunistic `Global\HWiNFO_SENS_SM2` shared-memory lookup for CPU package temperature & wattage.
+- `src/sensors/windows_pdh.rs` — Shared Win32 PDH (`Processor Information(_Total)`) helper for CPU usage and effective clock speed.
+- `src/sensors/windows_pawnio.rs` — Standalone Windows sensor backend (`WindowsPawnIoSensors`) using PawnIO (`\\?\GLOBALROOT\Device\PawnIO` + signed `AMDFamily17.bin` / `IntelMSR.bin` modules) and Win32 PDH.
+- `src/sensors/windows_hwinfo.rs` — Fallback Windows sensor backend (`WindowsHwinfoSensors`) using Win32 PDH and opportunistic `Global\HWiNFO_SENS_SM2` shared-memory lookup.
 - `src/sensors/linux.rs` — Linux sensor backend: zero-dependency `/sys/class/hwmon` (`k10temp`, `zenpower`, `coretemp`), `/sys/class/powercap` RAPL fallback, `/proc/stat`, and `cpufreq`/`/proc/cpuinfo`.
 
 ## Data Contracts
@@ -65,6 +67,6 @@ All reports are **64 bytes** zero-padded, starting with HID Report ID `0x10`:
 - **Synchronous by design:** Standard blocking threads + `std::thread::sleep` — no `tokio` or async runtimes.
 - **Errors (`Result<T, E>` and `?`):** Functions return `Result` instead of Go's `(T, error)` tuple; `?` propagates errors upward like `if err != nil { return err }`. Use `thiserror` for structured domain errors (`config`, `protocol`) and `anyhow::Result` at application/driver boundaries.
 - **Ownership & Borrowing:** Pass `&DeviceProfile` / `&[u8]` (read-only borrows) rather than cloning unless ownership needs to live inside a long-lived struct (such as `CoolerDevice`).
-- **Traits vs Go Interfaces:** `SensorProvider` is implemented explicitly (`impl SensorProvider for WindowsSensors`), and runtime dispatch uses `Box<dyn SensorProvider>`.
+- **Traits vs Go Interfaces:** `SensorProvider` is implemented explicitly (`impl SensorProvider for WindowsPawnIoSensors`, `WindowsHwinfoSensors`, `LinuxSensors`), and the factory returns `Box<dyn SensorProvider>`.
 - **RAII Cleanup (`Drop`):** OS handles (`PDH_HQUERY`, `HANDLE`, mapped views, `HidDevice`) clean up automatically when their owning struct goes out of scope (replacing Go's `defer`).
 - **Keep It Simple:** Avoid unnecessary macros, lifetime annotations, or over-engineered abstractions.

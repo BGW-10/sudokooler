@@ -1,18 +1,11 @@
-use std::ffi::c_void;
-use std::ptr;
-use std::time::Duration;
-
-use anyhow::{Result, anyhow};
-use windows::Win32::Foundation::{CloseHandle, ERROR_SUCCESS, HANDLE};
+use anyhow::Result;
+use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::System::Memory::{
     FILE_MAP_READ, MEMORY_MAPPED_VIEW_ADDRESS, MapViewOfFile, OpenFileMappingW, UnmapViewOfFile,
 };
-use windows::Win32::System::Performance::{
-    PDH_FMT_COUNTERVALUE, PDH_FMT_DOUBLE, PDH_HCOUNTER, PDH_HQUERY, PdhAddEnglishCounterW,
-    PdhCloseQuery, PdhCollectQueryData, PdhGetFormattedCounterValue, PdhOpenQueryW,
-};
 use windows::core::PCWSTR;
 
+use super::windows_pdh::{PdhCpuCounters, to_wide_null};
 use super::{SensorProvider, Telemetry};
 
 const HWINFO_SHMEM_NAMES: &[&str] = &["Global\\HWiNFO_SENS_SM2", "Local\\HWiNFO_SENS_SM2"];
@@ -24,21 +17,6 @@ const HWINFO_TYPE_TEMP: u32 = 1;
 const HWINFO_TYPE_POWER: u32 = 5;
 const HWINFO_TYPE_CLOCK: u32 = 6;
 const HWINFO_TYPE_USAGE: u32 = 7;
-
-/// RAII wrapper around a Win32 PDH query handle so it always closes on drop.
-struct PdhQuery {
-    handle: PDH_HQUERY,
-}
-
-impl Drop for PdhQuery {
-    fn drop(&mut self) {
-        if !self.handle.is_invalid() {
-            unsafe {
-                let _ = PdhCloseQuery(self.handle);
-            }
-        }
-    }
-}
 
 struct OwnedHandle(HANDLE);
 
@@ -64,90 +42,28 @@ impl Drop for MappedView {
     }
 }
 
-pub struct WindowsSensors {
-    query: PdhQuery,
-    usage_counter: PDH_HCOUNTER,
-    base_freq_counter: Option<PDH_HCOUNTER>,
-    perf_pct_counter: Option<PDH_HCOUNTER>,
+/// Fallback Windows sensor provider reading Win32 PDH for CPU usage & clock speed,
+/// plus opportunistic `Global\HWiNFO_SENS_SM2` shared memory for CPU temperature & wattage.
+pub struct WindowsHwinfoSensors {
+    pdh: PdhCpuCounters,
+    pawnio_reason: Option<String>,
     warned_no_hwinfo: bool,
 }
 
-impl WindowsSensors {
-    pub fn new() -> Result<Self> {
-        let mut query_handle = PDH_HQUERY::default();
-        let status = unsafe { PdhOpenQueryW(PCWSTR::null(), 0, &mut query_handle) };
-        if status != ERROR_SUCCESS.0 {
-            return Err(anyhow!("PdhOpenQueryW failed with status 0x{status:08X}"));
-        }
-        let query = PdhQuery {
-            handle: query_handle,
-        };
-
-        let usage_counter = add_english_counter(
-            query.handle,
-            "\\Processor Information(_Total)\\% Processor Utility",
-        )
-        .or_else(|_| {
-            add_english_counter(query.handle, "\\Processor(_Total)\\% Processor Time")
-        })?;
-
-        let base_freq_counter = add_english_counter(
-            query.handle,
-            "\\Processor Information(_Total)\\Processor Frequency",
-        )
-        .ok();
-
-        let perf_pct_counter = add_english_counter(
-            query.handle,
-            "\\Processor Information(_Total)\\% Processor Performance",
-        )
-        .ok();
-
-        // PDH rate counters require two collections separated by a short interval before
-        // `PdhGetFormattedCounterValue` returns a valid sample.
-        let status = unsafe { PdhCollectQueryData(query.handle) };
-        if status != ERROR_SUCCESS.0 {
-            return Err(anyhow!(
-                "initial PdhCollectQueryData failed with status 0x{status:08X}"
-            ));
-        }
-        std::thread::sleep(Duration::from_millis(120));
-
+impl WindowsHwinfoSensors {
+    pub fn new(pawnio_reason: Option<String>) -> Result<Self> {
+        let pdh = PdhCpuCounters::new()?;
         Ok(Self {
-            query,
-            usage_counter,
-            base_freq_counter,
-            perf_pct_counter,
+            pdh,
+            pawnio_reason,
             warned_no_hwinfo: false,
         })
     }
 }
 
-impl SensorProvider for WindowsSensors {
+impl SensorProvider for WindowsHwinfoSensors {
     fn read(&mut self) -> Result<Telemetry> {
-        let status = unsafe { PdhCollectQueryData(self.query.handle) };
-        if status != ERROR_SUCCESS.0 {
-            return Err(anyhow!("PdhCollectQueryData failed with status 0x{status:08X}"));
-        }
-
-        let mut cpu_usage_pct = read_pdh_double(self.usage_counter)
-            .unwrap_or(0.0)
-            .round()
-            .clamp(0.0, 100.0) as u8;
-
-        let mut cpu_freq_mhz = match (self.base_freq_counter, self.perf_pct_counter) {
-            (Some(base_c), Some(perf_c)) => {
-                let base = read_pdh_double(base_c).unwrap_or(0.0);
-                let perf = read_pdh_double(perf_c).unwrap_or(100.0);
-                ((base * perf) / 100.0).round().clamp(0.0, f64::from(u16::MAX)) as u16
-            }
-            (Some(base_c), None) => read_pdh_double(base_c)
-                .unwrap_or(0.0)
-                .round()
-                .clamp(0.0, f64::from(u16::MAX)) as u16,
-            _ => 0,
-        };
-
+        let (mut cpu_usage_pct, mut cpu_freq_mhz) = self.pdh.sample()?;
         let mut cpu_temp_c = 0.0f32;
         let mut cpu_power_w = 0u16;
 
@@ -172,9 +88,14 @@ impl SensorProvider for WindowsSensors {
             }
             None if !self.warned_no_hwinfo => {
                 self.warned_no_hwinfo = true;
-                eprintln!(
-                    "[sensors] HWiNFO64 shared memory not detected; CPU temp/power will report 0 unless HWiNFO Sensors is running with Shared Memory Support enabled."
-                );
+                match self.pawnio_reason.as_deref() {
+                    Some(reason) => eprintln!(
+                        "[sensors] PawnIO inactive ({reason}) and HWiNFO64 shared memory not detected; CPU temp/power will report 0."
+                    ),
+                    None => eprintln!(
+                        "[sensors] HWiNFO64 shared memory not detected; CPU temp/power will report 0."
+                    ),
+                }
             }
             None => {}
         }
@@ -188,34 +109,8 @@ impl SensorProvider for WindowsSensors {
     }
 
     fn backend_name(&self) -> &'static str {
-        "windows (Win32 PDH + optional HWiNFO64 shared memory)"
+        "windows (HWiNFO64 shared memory + Win32 PDH)"
     }
-}
-
-fn to_wide_null(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain(std::iter::once(0)).collect()
-}
-
-fn add_english_counter(query: PDH_HQUERY, path: &str) -> Result<PDH_HCOUNTER> {
-    let wide = to_wide_null(path);
-    let mut counter = PDH_HCOUNTER::default();
-    let status = unsafe { PdhAddEnglishCounterW(query, PCWSTR(wide.as_ptr()), 0, &mut counter) };
-    if status != ERROR_SUCCESS.0 {
-        return Err(anyhow!(
-            "PdhAddEnglishCounterW('{path}') failed with status 0x{status:08X}"
-        ));
-    }
-    Ok(counter)
-}
-
-fn read_pdh_double(counter: PDH_HCOUNTER) -> Option<f64> {
-    let mut value = PDH_FMT_COUNTERVALUE::default();
-    let status = unsafe { PdhGetFormattedCounterValue(counter, PDH_FMT_DOUBLE, None, &mut value) };
-    if status != ERROR_SUCCESS.0 {
-        return None;
-    }
-    let v = unsafe { value.Anonymous.doubleValue };
-    v.is_finite().then_some(v)
 }
 
 #[derive(Default)]
@@ -360,7 +255,6 @@ fn read_hwinfo_cpu_sensors() -> Option<HwinfoSnapshot> {
         );
     }
 
-    let _ = ptr::NonNull::<c_void>::dangling();
     Some(snap)
 }
 

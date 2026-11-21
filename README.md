@@ -51,8 +51,51 @@ sudokooler --config path/to/devices.toml --interval-ms 1000 --count 0
   ```
 
 ### Windows
-- Uses native Win32 PDH (`Processor Information(_Total)`) for CPU usage and effective clock speed.
-- Opportunistically reads `Global\HWiNFO_SENS_SM2` shared memory for CPU package temperature (`CPU (Tctl/Tdie)` / `CPU Package`) and package power (`CPU Package Power` / `CPU PPT`) when HWiNFO Sensors is running with Shared Memory Support enabled (otherwise reports `0.0°C` / `0W`).
+On Windows, `sudokooler` reads CPU usage and effective clock speed natively via **Win32 PDH** (`Processor Information(_Total)`). Because Windows provides no built-in user-mode API for CPU die temperatures or package wattage on desktop CPUs, `sudokooler` supports **two options** for temperature and power telemetry (automatically choosing PawnIO if available, or HWiNFO64 otherwise):
+
+#### Option 1: PawnIO (Recommended — Standalone, No Background App)
+Ideal if you want `sudokooler` to run completely standalone (~2–4 MB RAM, zero background tray apps, and no 12-hour shared-memory timeout).
+
+**Automated Setup (`packaging/setup-windows.ps1`)** — run from an **elevated (Administrator)** PowerShell prompt:
+```powershell
+# Install PawnIO driver + signed AMDFamily17.bin & IntelMSR.bin modules
+.\packaging\setup-windows.ps1
+
+# Optional: also build release binary first and register an elevated auto-start logon task
+cargo build --release
+.\packaging\setup-windows.ps1 -RegisterTask
+```
+What `packaging/setup-windows.ps1` automates:
+- Checks if PawnIO is already installed; if not, downloads `PawnIO_setup.exe` from the latest [namazso/PawnIO.Setup](https://github.com/namazso/PawnIO.Setup/releases) GitHub release and runs the installer.
+- Downloads the latest [namazso/PawnIO.Modules](https://github.com/namazso/PawnIO.Modules/releases) release zip, extracts `AMDFamily17.bin` and `IntelMSR.bin`, and installs them into `C:\Program Files\PawnIO\modules\`.
+- Cleans up its temporary working folder automatically.
+- *(Only when `-RegisterTask` is passed)* Registers a Windows Task Scheduler logon task named `sudokooler` configured with **Run with highest privileges**. *(Supports `-SkipDriver`, `-ModulesDir`, and `-BinaryPath` flags.)*
+
+**Manual Setup:**
+1. Install the signed **PawnIO** kernel driver from [pawnio.eu](https://pawnio.eu/).
+2. Download the signed module binary from [namazso/PawnIO.Modules releases](https://github.com/namazso/PawnIO.Modules/releases):
+   - `AMDFamily17.bin` for AMD Ryzen (Zen 1–5 / Family 17h–1Ah; reads `Tctl/Tdie` temp and RAPL package wattage)
+   - `IntelMSR.bin` for Intel Core CPUs (reads package temperature)
+3. Place the `.bin` module in one of the auto-discovered paths:
+   - `C:\Program Files\PawnIO\modules\` (or `C:\Program Files\PawnIO\`)
+   - A `pawnio\` folder next to `sudokooler.exe` (or alongside `sudokooler.exe` directly)
+   - Or point `SUDOKOOLER_PAWNIO_MODULE` to the `.bin` file or directory.
+4. Run `sudokooler.exe` as Administrator (or via a Task Scheduler logon task with **Run with highest privileges** enabled), since Windows requires elevation to open `\\?\GLOBALROOT\Device\PawnIO`.
+
+#### Option 2: HWiNFO64 Shared Memory (No PawnIO or Elevation Required)
+Fully supported if you already run **HWiNFO64** or prefer not to install PawnIO or run `sudokooler` elevated:
+1. Install and launch **HWiNFO64** in **Sensors-only** mode.
+2. Open **Settings** (gear icon) → **General / User Interface**, and enable **Shared Memory Support**.
+   - *(Optional)* Enable **Auto Start** and **Minimize Sensors on Startup** (or **Minimize Main Window**) so HWiNFO stays in the system tray.
+3. Run `sudokooler.exe` normally (no Administrator elevation required):
+   ```powershell
+   .\target\release\sudokooler.exe --dry-run --count 3
+   .\target\release\sudokooler.exe
+   ```
+   When PawnIO is absent, `sudokooler` automatically connects to `Global\HWiNFO_SENS_SM2` for CPU temperature (`CPU (Tctl/Tdie)` / `CPU Package`) and package wattage (`CPU Package Power` / `CPU PPT`).
+4. **Note:** HWiNFO64 **Free** automatically disables Shared Memory Support after **12 hours** per session (HWiNFO Pro removes this limit).
+
+> **Without PawnIO or HWiNFO64:** `sudokooler` still runs cleanly using Win32 PDH for live CPU usage and frequency, reporting `0.0°C` / `0W` for temperature and power.
 
 ## AI Assistance Disclosure
 
