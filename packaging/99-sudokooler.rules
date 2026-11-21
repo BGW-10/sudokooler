@@ -1,0 +1,2 @@
+# Allow unprivileged local users / systemd services access to Sudokoo USB HID devices (VID 0x381c)
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="381c", MODE="0660", TAG+="uaccess"

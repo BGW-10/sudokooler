@@ -1,0 +1,86 @@
+# Default Sudokoo USB HID Device Registry
+#
+# Safety rule: Only profiles with `enabled = true` will ever be opened or written to
+# by `sudokooler`. Every entry MUST belong to Sudokoo's USB Vendor ID (0x381C).
+
+[[devices]]
+name = "Sudokoo SK700V"
+vid = 0x381C
+pid = 0x0003
+protocol = "sk700v"
+enabled = true
+verified = true
+report_id = 0x10
+report_length = 64
+# Power bar is scaled 0..100 against `power_bar_max_w` (integer floor: power * 100 / max).
+# MasterCraft captures on Ryzen 9800X3D (120W TDP * 1.3) match 156 W; 160 W is a safe default.
+power_bar_max_w = 160
+temp_unit = "C"
+init_packets = ["106801090203017816"]
+shutdown_packets = ["106801090203007716"]
+
+# ---------------------------------------------------------------------------
+# Unverified 0x381C PIDs discovered in MasterCraft's main bundle (`index.jsc`)
+# alongside Sudokoo product models: SK700V MACH, SK620V, PROTEUS, ENERGLO.
+#
+# Because `index.jsc` is compiled V8 bytecode without a plaintext PID->model
+# manifest, the exact PID-to-model mapping and packet schemas for these
+# devices are NOT yet hardware-verified. Keep `enabled = false` until tested
+# with USB captures on real hardware.
+# ---------------------------------------------------------------------------
+
+[[devices]]
+name = "Sudokoo Unverified Model (PID 0x0001 - candidate: SK700V MACH / SK620V / PROTEUS / ENERGLO)"
+vid = 0x381C
+pid = 0x0001
+protocol = "sk700v"
+enabled = false
+verified = false
+report_id = 0x10
+report_length = 64
+power_bar_max_w = 160
+temp_unit = "C"
+init_packets = ["106801090203017816"]
+shutdown_packets = ["106801090203007716"]
+
+[[devices]]
+name = "Sudokoo Unverified Model (PID 0x0002 - candidate: SK700V MACH / SK620V / PROTEUS / ENERGLO)"
+vid = 0x381C
+pid = 0x0002
+protocol = "sk700v"
+enabled = false
+verified = false
+report_id = 0x10
+report_length = 64
+power_bar_max_w = 160
+temp_unit = "C"
+init_packets = ["106801090203017816"]
+shutdown_packets = ["106801090203007716"]
+
+[[devices]]
+name = "Sudokoo Unverified Model (PID 0x0004 - candidate: SK700V MACH / SK620V / PROTEUS / ENERGLO)"
+vid = 0x381C
+pid = 0x0004
+protocol = "sk700v"
+enabled = false
+verified = false
+report_id = 0x10
+report_length = 64
+power_bar_max_w = 160
+temp_unit = "C"
+init_packets = ["106801090203017816"]
+shutdown_packets = ["106801090203007716"]
+
+[[devices]]
+name = "Sudokoo Unverified Model (PID 0x0005 - candidate: SK700V MACH / SK620V / PROTEUS / ENERGLO)"
+vid = 0x381C
+pid = 0x0005
+protocol = "sk700v"
+enabled = false
+verified = false
+report_id = 0x10
+report_length = 64
+power_bar_max_w = 160
+temp_unit = "C"
+init_packets = ["106801090203017816"]
+shutdown_packets = ["106801090203007716"]

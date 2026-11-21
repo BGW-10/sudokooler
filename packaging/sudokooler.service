@@ -1,0 +1,12 @@
+[Unit]
+Description=Sudokoo USB HID CPU Cooler Display Daemon
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/sudokooler
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

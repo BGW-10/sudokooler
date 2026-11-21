@@ -1,0 +1,35 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+
+# Python cache and virtualenvs (keep python/*.py prototype scripts tracked)
+/python/__pycache__/
+/python/.venv/
+*.py[cod]
+*.pyc
+
+# Proprietary Sudokoo MasterCraft binaries, assets, captures, and unpacked bundles
+*.exe
+*.dll
+*.asar
+*.asar.bak
+*.pak
+*.dat
+*.bin
+*.node
+*.jsc
+/app_unpacked/
+/mastercraft/
+/resources/
+/locales/
+LICENSE.electron.txt
+LICENSES.chromium.html
+vk_swiftshader_icd.json
+start.bat
+packets.txt
+onoff.txt
+onoff.csv
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
